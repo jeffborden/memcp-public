@@ -52,9 +52,7 @@ class TestFakeProvider:
 
 
 class TestGetProvider:
-    def test_get_provider_returns_none_without_deps(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_get_provider_returns_none_without_deps(self, monkeypatch: pytest.MonkeyPatch) -> None:
         reset_provider()
         monkeypatch.setenv("MEMCP_EMBEDDING_PROVIDER", "model2vec")
         # Provider will return None if model2vec isn't installed

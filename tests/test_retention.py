@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gzip
-import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -11,7 +10,7 @@ from typing import Any
 import pytest
 
 from memcp.config import get_config
-from memcp.core import context_store, retention
+from memcp.core import context_store
 from memcp.core.fileutil import atomic_write_json, locked_read_json
 from memcp.core.memory import remember
 from memcp.core.retention import (
@@ -26,7 +25,6 @@ from memcp.core.retention import (
     retention_preview,
     retention_run,
 )
-
 
 # ── Helpers ────────────────────────────────────────────────────────────
 

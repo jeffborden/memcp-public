@@ -66,7 +66,8 @@ class MemCPConfig:
 
     def ensure_dirs(self) -> None:
         """Create all required directories if they don't exist."""
-        for d in [self.data_dir, self.contexts_dir, self.chunks_dir, self.cache_dir, self.archive_dir]:
+        dirs = [self.data_dir, self.contexts_dir, self.chunks_dir, self.cache_dir, self.archive_dir]
+        for d in dirs:
             d.mkdir(parents=True, exist_ok=True)
 
 

@@ -236,7 +236,7 @@ def semantic_search(
 
     # Batch embed uncached documents
     if texts_to_embed:
-        indices, texts = zip(*texts_to_embed)
+        indices, texts = zip(*texts_to_embed, strict=False)
         batch_vecs = provider.embed_batch(list(texts))
         for idx, vec, text in zip(indices, batch_vecs, texts, strict=False):
             doc_vectors[idx] = vec

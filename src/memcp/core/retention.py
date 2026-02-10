@@ -18,7 +18,6 @@ from __future__ import annotations
 import gzip
 import shutil
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from memcp.config import get_config
@@ -51,10 +50,7 @@ def is_immune(item: dict[str, Any]) -> bool:
     if isinstance(tags, str):
         tags = [t.strip() for t in tags.split(",") if t.strip()]
     tag_set = {t.lower() for t in tags}
-    if tag_set & _PROTECTED_TAGS:
-        return True
-
-    return False
+    return bool(tag_set & _PROTECTED_TAGS)
 
 
 def _days_since(iso_timestamp: str | None) -> float:
@@ -142,9 +138,7 @@ def _get_insight_candidates(threshold_days: int) -> list[dict[str, Any]]:
     graph = GraphMemory()
     try:
         conn = graph._get_conn()
-        rows = conn.execute(
-            "SELECT * FROM nodes WHERE access_count = 0"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM nodes WHERE access_count = 0").fetchall()
 
         candidates = []
         for row in rows:
@@ -401,10 +395,7 @@ def purge_archived(name_or_id: str, item_type: str = "auto") -> dict[str, Any]:
     if item_type == "auto":
         # Try context first, then insight
         ctx_dir = config.archive_dir / "contexts" / name_or_id
-        if ctx_dir.exists():
-            item_type = "context"
-        else:
-            item_type = "insight"
+        item_type = "context" if ctx_dir.exists() else "insight"
 
     if item_type == "context":
         return _purge_context(name_or_id)
@@ -424,13 +415,15 @@ def _purge_context(name: str) -> dict[str, Any]:
         raise FileNotFoundError(f"Archived context {name!r} not found")
 
     # Log to purge log
-    _log_purge({
-        "id": name,
-        "type": "context",
-        "content_preview": meta.get("name", name),
-        "original_created_at": meta.get("created_at"),
-        "archived_at": meta.get("archived_at"),
-    })
+    _log_purge(
+        {
+            "id": name,
+            "type": "context",
+            "content_preview": meta.get("name", name),
+            "original_created_at": meta.get("created_at"),
+            "archived_at": meta.get("archived_at"),
+        }
+    )
 
     # Delete
     shutil.rmtree(archive_ctx_dir)
@@ -456,13 +449,15 @@ def _purge_insight(insight_id: str) -> dict[str, Any]:
         raise ValueError(f"Archived insight {insight_id!r} not found")
 
     # Log to purge log
-    _log_purge({
-        "id": insight_id,
-        "type": "insight",
-        "content_preview": found.get("content", "")[:100],
-        "original_created_at": found.get("created_at"),
-        "archived_at": found.get("archived_at"),
-    })
+    _log_purge(
+        {
+            "id": insight_id,
+            "type": "insight",
+            "content_preview": found.get("content", "")[:100],
+            "original_created_at": found.get("created_at"),
+            "archived_at": found.get("archived_at"),
+        }
+    )
 
     # Update archive file
     atomic_write_json(insights_path, remaining)

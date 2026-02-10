@@ -114,9 +114,7 @@ class VectorStore:
                 self.vectors = None
         return True
 
-    def search(
-        self, query_vector: list[float], top_k: int = 10
-    ) -> list[tuple[str, float]]:
+    def search(self, query_vector: list[float], top_k: int = 10) -> list[tuple[str, float]]:
         """Cosine similarity search. Returns list of (id, score) tuples."""
         if not NUMPY_AVAILABLE or self.vectors is None or len(self.ids) == 0:
             return []

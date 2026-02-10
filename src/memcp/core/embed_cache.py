@@ -74,10 +74,10 @@ class EmbedCache:
     def close(self) -> None:
         """Close the disk cache if open."""
         if self._disk_cache is not None:
-            try:
+            import contextlib
+
+            with contextlib.suppress(Exception):
                 self._disk_cache.close()
-            except Exception:
-                pass
 
 
 # ── Module-level singleton ─────────────────────────────────────────────

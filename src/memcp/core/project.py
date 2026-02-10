@@ -17,7 +17,6 @@ from typing import Any
 from memcp.config import get_config
 from memcp.core.fileutil import atomic_write_json, locked_read_json
 
-
 # ── Project Detection ─────────────────────────────────────────────────
 
 

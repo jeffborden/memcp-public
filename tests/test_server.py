@@ -164,9 +164,7 @@ class TestSearch:
         assert result["status"] == "ok"
 
     def test_search_empty(self, isolated_data_dir: Path) -> None:
-        result = json.loads(
-            memcp_search(query="nonexistent_query_xyz", source="all", scope="all")
-        )
+        result = json.loads(memcp_search(query="nonexistent_query_xyz", source="all", scope="all"))
         assert result["status"] == "ok"
         assert result["count"] == 0
 
