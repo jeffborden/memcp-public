@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memcp"
+version = "0.1.0"
+description = "Persistent memory MCP server for Claude Code — never lose context again"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = ["mcp>=1.0.0,<2.0.0", "pydantic>=2.0.0,<3.0.0"]
+
+[project.optional-dependencies]
+search = ["bm25s>=0.2.0"]
+fuzzy = ["rapidfuzz>=3.0"]
+semantic = ["model2vec>=0.4.0", "numpy>=1.24.0"]
+semantic-hq = ["fastembed>=0.5.0", "numpy>=1.24.0"]
+vectors = ["sqlite-vec>=0.1.0"]
+cache = ["diskcache>=5.6.0"]
+llm = ["httpx>=0.27.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.1.0"]
+all = ["memcp[search,fuzzy,semantic,vectors,cache,llm,dev]"]
+
+[project.scripts]
+memcp = "memcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memcp"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
