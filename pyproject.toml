@@ -3,7 +3,7 @@ requires = ["hatchling", "hatch-fancy-pypi-readme"]
 build-backend = "hatchling.build"
 
 [project]
-name = "memcp"
+name = "claude-memory-mcp"
 version = "0.1.0"
 description = "Persistent memory MCP server for Claude Code — never lose context again"
 dynamic = ["readme"]
