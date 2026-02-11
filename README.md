@@ -204,8 +204,7 @@ MemCP includes a benchmark suite that measures the token efficiency advantage of
 
 Run the benchmarks yourself:
 ```bash
-pip install -e ".[dev,benchmark]"
-pytest tests/benchmark/ --benchmark-only -v
+make benchmark
 ```
 
 Full report: [`benchmark_output/benchmark_report.md`](benchmark_output/benchmark_report.md) | Raw data: [`benchmark_output/benchmark_results.json`](benchmark_output/benchmark_results.json)
@@ -241,7 +240,7 @@ Before installing MemCP, ensure you have the following on your machine:
 ```bash
 git clone https://github.com/mohamedali-may/memcp.git
 cd memcp
-bash scripts/install.sh
+make setup
 ```
 
 The interactive installer will:
@@ -273,40 +272,40 @@ claude mcp add memcp -- docker run --rm -i \
 
 ### Manual Installation
 
+If you prefer not to use the interactive installer:
+
 ```bash
-# 1. Create virtual environment
-python3 -m venv .venv
+# 1. Install in a venv
+make dev                                    # All extras (search, fuzzy, semantic, cache, …)
 source .venv/bin/activate
 
-# 2. Install (choose your extras)
-pip install -e "."                          # Core only
-pip install -e ".[search,fuzzy]"            # + BM25 + typo tolerance
-pip install -e ".[search,fuzzy,semantic]"   # + vector embeddings
-pip install -e ".[all]"                     # Everything
+# Or pick specific extras:
+# pip install -e ".[dev]"                   # Dev tools only (pytest, ruff)
+# pip install -e ".[dev,search,fuzzy]"      # + BM25 + typo tolerance
+# pip install -e ".[dev,semantic,cache]"    # + vector embeddings + caching
 
-# 3. Register with Claude Code
-claude mcp add memcp .venv/bin/python -- -m memcp.server -s user
+# 2. Register with Claude Code
+claude mcp add memcp -s user -- .venv/bin/python -m memcp
 
-# 4. Deploy sub-agents (user-level, available across all projects)
+# 3. Deploy sub-agents (user-level, available across all projects)
 mkdir -p ~/.claude/agents
-cp templates/agents/memcp-*.md ~/.claude/agents/
+cp agents/memcp-*.md ~/.claude/agents/
 
-# 5. Merge hooks into global Claude Code settings
+# 4. Merge hooks into global Claude Code settings
 # If ~/.claude/settings.json doesn't exist or is empty:
-cp templates/settings.json ~/.claude/settings.json
-# If it already has content, manually merge the "hooks" key from templates/settings.json
+cp hooks/snippets/settings.json ~/.claude/settings.json
+# If it already has content, manually merge the "hooks" key from hooks/snippets/settings.json
 
-# 6. Deploy CLAUDE.md to your project
+# 5. Deploy CLAUDE.md to your project
 cp templates/CLAUDE.md ./CLAUDE.md
 
-# 7. Verify
-# In a Claude Code session, type: memcp_ping()
+# 6. Verify — in a Claude Code session, type: memcp_ping()
 ```
 
 ### Uninstall
 
 ```bash
-bash scripts/uninstall.sh
+make teardown
 ```
 
 The uninstaller lets you choose what to remove: MCP registration, sub-agents (`~/.claude/agents/`), hooks (from `~/.claude/settings.json`), virtual environment, data directory, or everything.
@@ -461,15 +460,16 @@ memcp/
 ├── hooks/
 │   ├── pre_compact_save.py      # Block /compact until context saved
 │   ├── auto_save_reminder.py    # Progressive reminders (10/20/30 turns)
-│   └── reset_counter.py         # Reset counter after saves
+│   ├── reset_counter.py         # Reset counter after saves
+│   └── snippets/
+│       └── settings.json        # Hook registration (merged into ~/.claude/settings.json)
+├── agents/                      # RLM sub-agent templates (deployed to ~/.claude/agents/)
+│   ├── memcp-analyzer.md        # Peek → identify → load → analyze
+│   ├── memcp-mapper.md          # MAP phase (Haiku, parallel)
+│   ├── memcp-synthesizer.md     # REDUCE phase (Sonnet)
+│   └── memcp-entity-extractor.md  # LLM entity extraction
 ├── templates/                   # Deployed by installer to target locations
-│   ├── CLAUDE.md                # Session instructions (deployed to project root)
-│   ├── settings.json            # Hook registration (merged into ~/.claude/settings.json)
-│   └── agents/                  # RLM sub-agent templates (deployed to ~/.claude/agents/)
-│       ├── memcp-analyzer.md    # Peek → identify → load → analyze
-│       ├── memcp-mapper.md      # MAP phase (Haiku, parallel)
-│       ├── memcp-synthesizer.md # REDUCE phase (Sonnet)
-│       └── memcp-entity-extractor.md  # LLM entity extraction
+│   └── CLAUDE.md                # Session instructions (deployed to project root)
 ├── scripts/
 │   ├── install.sh               # Interactive installer (8 steps)
 │   └── uninstall.sh             # Cleanup script
@@ -570,28 +570,21 @@ pip install memcp[all]                     # Everything
 ## Development
 
 ```bash
-# Setup
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+make dev                    # Create venv + install all extras + pre-commit
+source .venv/bin/activate
 
-# Run unit tests
-pytest tests/unit/ -v
-
-# Run unit tests with search extras
-pip install -e ".[dev,search,fuzzy,semantic]"
-pytest tests/unit/ -v
-
-# Run benchmarks
-pip install -e ".[dev,benchmark]"
-pytest tests/benchmark/ --benchmark-only -v
-
-# Lint
-ruff check src/ tests/
-ruff format src/ tests/
-
-# Run the server directly
-python -m memcp.server
+make test                   # Unit tests (core)
+make test-all               # Unit + benchmark tests
+make benchmark              # Benchmark suite only
+make lint                   # Lint + format check (CI-equivalent)
+make fmt                    # Auto-fix lint + format
+make run                    # Start the MCP server
+make clean                  # Remove build/cache artifacts
 ```
+
+> **Note:** `make dev` installs all optional extras (`search`, `fuzzy`, `semantic`, `cache`, `vectors`, `llm`, `benchmark`), so search and semantic tests will run out of the box. If you installed only specific extras, some search-tier tests will be skipped automatically.
+
+Run `make` or `make help` to see all available targets.
 
 ### CI/CD
 
