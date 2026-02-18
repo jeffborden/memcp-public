@@ -64,7 +64,7 @@ def _ensure_graph_migrated() -> GraphMemory:
 def _default_memory() -> dict[str, Any]:
     """Default empty memory structure."""
     return {
-        "version": "0.1.0",
+        "version": "0.2.0",
         "insights": [],
         "metadata": {"created_at": datetime.now(timezone.utc).isoformat()},
     }

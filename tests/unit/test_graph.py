@@ -605,7 +605,7 @@ class TestGraphMemoryMigration:
     def test_migrate_from_json(self) -> None:
         now = datetime.now(timezone.utc)
         memory = {
-            "version": "0.1.0",
+            "version": "0.2.0",
             "insights": [
                 {
                     "id": "legacy-1",

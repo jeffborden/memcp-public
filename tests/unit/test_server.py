@@ -35,7 +35,7 @@ class TestPing:
         result = json.loads(memcp_ping())
         assert result["status"] == "ok"
         assert result["server"] == "MemCP"
-        assert result["version"] == "0.1.0"
+        assert result["version"] == "0.2.0"
         assert "memory" in result
 
 

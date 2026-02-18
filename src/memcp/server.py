@@ -50,7 +50,7 @@ def memcp_ping() -> str:
         {
             "status": "ok",
             "server": "MemCP",
-            "version": "0.1.0",
+            "version": "0.2.0",
             "memory": status,
         },
         indent=2,
