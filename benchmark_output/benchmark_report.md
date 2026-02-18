@@ -1,26 +1,61 @@
 # Benchmark Report: Claude Native vs Claude with RLM
 
-*Generated: 2026-02-11 00:09 UTC*
+*Generated: 2026-02-18 10:37 UTC*
 
 
 ---
 
 
-## Token Efficiency
+## Context Rot Resistance
 
-*Tokens consumed in the context window for equivalent operations.*
+*Knowledge retained after simulated compaction or session boundaries.*
+
+
+| Scenario | Metric | Native | RLM | Unit |
+|----------|--------|--------|-----|------|
+| Context Rot: Single Compaction | Knowledge retained after /compact | 5.0% | 100.0% | % |
+| Context Rot: Cascading Compactions (3x) | Knowledge retained after 3 compactions | 2.0% | 100.0% | % |
+| Context Rot: Cross-Session | Session-1 knowledge from session-5 | 0.0% | 92.0% | % |
+| Context Rot: Importance Decay | Critical insight retention at 60 days | 0.0% | 100.0% | % |
+
+## Context Window Management
+
+*How efficiently each mode uses the fixed-size context window.*
 
 
 | Scenario | Metric | Native | RLM | RLM Advantage | Unit |
 |----------|--------|--------|-----|---------------|------|
-| Session Startup | Reload 50 insights | 896 | 167 | 5.4x less | tokens |
-| Session Startup | Reload 200 insights | 3,768 | 433 | 8.7x less | tokens |
-| Session Startup | Reload 500 insights | 9,380 | 462 | 20.3x less | tokens |
-| Large Document Analysis | Analyse 5K-token doc | 5,077 | 231 | 22.0x less | tokens |
-| Large Document Analysis | Analyse 20K-token doc | 20,209 | 231 | 87.5x less | tokens |
-| Large Document Analysis | Analyse 50K-token doc | 50,460 | 231 | 218.4x less | tokens |
-| Cross-Reference Knowledge | Find auth decisions + causes | 1,861 | 172 | 10.8x less | tokens |
-| Multi-turn Accumulation | 30 turns, retrieve turn-5 finding | 548 | 505 | 1.1x less | tokens |
+| Context Window: Progressive Fill | Docs before first eviction | 10 | 20 | 2.0x more | docs |
+| Context Window: Progressive Fill | Final utilisation after 20 docs | 95.0% | 0.9% | 100.0x less | % |
+| Context Window Capacity (32K) | Documents manageable | 3.2 | 50 | 15.6x more | docs |
+| Context Window Capacity (64K) | Documents manageable | 6.4 | 50 | 7.8x more | docs |
+| Context Window Capacity (128K) | Documents manageable | 12.8 | 50 | 3.9x more | docs |
+| Context Window Capacity (200K) | Documents manageable | 20 | 50 | 2.5x more | docs |
+| Working Set: 10 Simultaneous Docs | Context window utilisation | 93.6% | 1.0% | 93.6x less | % |
+| Compaction Pressure | Turns before first eviction | 0 | 100 | +100 | turns |
+
+## Scale Behavior
+
+*How token costs grow as the knowledge base grows (N = number of insights).*
+
+
+| N | Metric | Native (tokens) | RLM (tokens) | RLM Advantage |
+|---|--------|-----------------|--------------|---------------|
+| Scale: Recall from 10 | Tokens to retrieve 10 insights | 186 | 0 | zero cost |
+| Scale: Recall from 100 | Tokens to retrieve 10 insights | 1,802 | 94 | 19.2x less |
+| Scale: Recall from 500 | Tokens to retrieve 10 insights | 9,063 | 187 | 48.5x less |
+| Scale: Recall from 1000 | Tokens to retrieve 10 insights | 17,996 | 187 | 96.2x less |
+| Scale: Recall from 5000 | Tokens to retrieve 10 insights | 91,705 | 187 | 490.4x less |
+| Scale: Overhead for 10 insights | Tokens to keep knowledge available | 186 | 13 | 14.3x less |
+| Scale: Overhead for 100 insights | Tokens to keep knowledge available | 1,802 | 13 | 138.6x less |
+| Scale: Overhead for 500 insights | Tokens to keep knowledge available | 9,063 | 13 | 697.2x less |
+| Scale: Overhead for 1000 insights | Tokens to keep knowledge available | 17,996 | 14 | 1285.4x less |
+| Scale: Overhead for 5000 insights | Tokens to keep knowledge available | 91,705 | 14 | 6550.4x less |
+| Scale: Search across 10 | Tokens to search and return top-10 | 186 | 83 | 2.2x less |
+| Scale: Search across 100 | Tokens to search and return top-10 | 1,802 | 183 | 9.8x less |
+| Scale: Search across 500 | Tokens to search and return top-10 | 9,063 | 193 | 47.0x less |
+| Scale: Search across 1000 | Tokens to search and return top-10 | 17,996 | 191 | 94.2x less |
+| Scale: Search across 5000 | Tokens to search and return top-10 | 91,705 | 192 | 477.6x less |
 
 ---
 
@@ -68,4 +103,4 @@ This benchmark compares two modes of operating Claude Code:
 - **The working set efficiency** comparison is realistic: loading full documents into the context window vs. inspecting metadata + selective chunks is a genuine architectural difference.
 
 
-**Total comparisons:** 8
+**Total comparisons:** 27

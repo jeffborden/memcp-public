@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from memcp import __version__
 from memcp.server import (
     memcp_chunk_context,
     memcp_clear_context,
@@ -35,7 +36,7 @@ class TestPing:
         result = json.loads(memcp_ping())
         assert result["status"] == "ok"
         assert result["server"] == "MemCP"
-        assert result["version"] == "0.2.0"
+        assert result["version"] == __version__
         assert "memory" in result
 
 

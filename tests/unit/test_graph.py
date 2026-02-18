@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from memcp import __version__
 from memcp.core.errors import InsightNotFoundError
 from memcp.core.fileutil import content_hash, estimate_tokens
 from memcp.core.graph import (
@@ -605,7 +606,7 @@ class TestGraphMemoryMigration:
     def test_migrate_from_json(self) -> None:
         now = datetime.now(timezone.utc)
         memory = {
-            "version": "0.2.0",
+            "version": __version__,
             "insights": [
                 {
                     "id": "legacy-1",

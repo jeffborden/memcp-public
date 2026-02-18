@@ -4,9 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-memory-mcp"
-version = "0.2.0"
 description = "Persistent memory MCP server for Claude Code — never lose context again"
-dynamic = ["readme"]
+dynamic = ["readme", "version"]
 license = "MIT"
 requires-python = ">=3.10"
 dependencies = ["mcp>=1.0.0,<2.0.0", "pydantic>=2.0.0,<3.0.0"]
@@ -45,6 +44,9 @@ text = "\n---\n\n"
 
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
 path = "CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/memcp/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/memcp"]

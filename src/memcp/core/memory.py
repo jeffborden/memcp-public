@@ -14,6 +14,7 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
+from memcp import __version__
 from memcp.config import get_config
 from memcp.core.errors import ValidationError
 from memcp.core.fileutil import (
@@ -64,7 +65,7 @@ def _ensure_graph_migrated() -> GraphMemory:
 def _default_memory() -> dict[str, Any]:
     """Default empty memory structure."""
     return {
-        "version": "0.2.0",
+        "version": __version__,
         "insights": [],
         "metadata": {"created_at": datetime.now(timezone.utc).isoformat()},
     }

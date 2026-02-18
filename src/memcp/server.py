@@ -13,6 +13,7 @@ import json
 
 from mcp.server.fastmcp import FastMCP
 
+from memcp import __version__
 from memcp.core.async_utils import run_sync
 from memcp.core.errors import MemCPError
 from memcp.core.memory import (
@@ -50,7 +51,7 @@ def memcp_ping() -> str:
         {
             "status": "ok",
             "server": "MemCP",
-            "version": "0.2.0",
+            "version": __version__,
             "memory": status,
         },
         indent=2,
