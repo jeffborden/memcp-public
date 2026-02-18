@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from memcp.core import chunker, context_store
+from memcp.core.errors import MemCPError
 from memcp.core.project import get_current_project
 
 
@@ -43,7 +44,7 @@ def load_context(
             indent=2,
             default=str,
         )
-    except (ValueError, FileNotFoundError) as e:
+    except (ValueError, FileNotFoundError, MemCPError) as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
 
@@ -66,7 +67,7 @@ def inspect_context(name: str) -> str:
             indent=2,
             default=str,
         )
-    except FileNotFoundError as e:
+    except (FileNotFoundError, MemCPError) as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
 
@@ -86,7 +87,7 @@ def get_context(name: str, start: int = 0, end: int = 0) -> str:
             indent=2,
             default=str,
         )
-    except FileNotFoundError as e:
+    except (FileNotFoundError, MemCPError) as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
 
@@ -123,7 +124,7 @@ def do_chunk_context(
             indent=2,
             default=str,
         )
-    except (ValueError, FileNotFoundError) as e:
+    except (ValueError, FileNotFoundError, MemCPError) as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
 
@@ -153,7 +154,7 @@ def do_peek_chunk(
             indent=2,
             default=str,
         )
-    except (ValueError, FileNotFoundError) as e:
+    except (ValueError, FileNotFoundError, MemCPError) as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
 
@@ -175,7 +176,7 @@ def do_filter_context(name: str, pattern: str, invert: bool = False) -> str:
             indent=2,
             default=str,
         )
-    except (ValueError, FileNotFoundError) as e:
+    except (ValueError, FileNotFoundError, MemCPError) as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
 
@@ -219,5 +220,5 @@ def do_clear_context(name: str) -> str:
             },
             indent=2,
         )
-    except ValueError as e:
+    except (ValueError, MemCPError) as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)

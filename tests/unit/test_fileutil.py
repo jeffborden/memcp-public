@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from memcp.core.errors import ValidationError
 from memcp.core.fileutil import (
     atomic_write_json,
     atomic_write_text,
@@ -27,25 +28,25 @@ class TestSafeName:
         assert safe_name("123") == "123"
 
     def test_invalid_empty(self) -> None:
-        with pytest.raises(ValueError, match="Invalid name"):
+        with pytest.raises(ValidationError, match="Invalid name"):
             safe_name("")
 
     def test_invalid_spaces(self) -> None:
-        with pytest.raises(ValueError, match="Invalid name"):
+        with pytest.raises(ValidationError, match="Invalid name"):
             safe_name("has space")
 
     def test_invalid_slashes(self) -> None:
-        with pytest.raises(ValueError, match="Invalid name"):
+        with pytest.raises(ValidationError, match="Invalid name"):
             safe_name("path/traversal")
 
     def test_invalid_path_traversal(self) -> None:
-        with pytest.raises(ValueError, match="path traversal"):
+        with pytest.raises(ValidationError, match="path traversal"):
             safe_name("foo..bar")
 
     def test_invalid_special_chars(self) -> None:
-        with pytest.raises(ValueError, match="Invalid name"):
+        with pytest.raises(ValidationError, match="Invalid name"):
             safe_name("hello@world")
-        with pytest.raises(ValueError, match="Invalid name"):
+        with pytest.raises(ValidationError, match="Invalid name"):
             safe_name("rm -rf /")
 
 

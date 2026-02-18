@@ -11,6 +11,7 @@ import pytest
 
 from memcp.config import get_config
 from memcp.core import context_store
+from memcp.core.errors import InsightNotFoundError, ValidationError
 from memcp.core.fileutil import atomic_write_json, locked_read_json
 from memcp.core.memory import remember
 from memcp.core.retention import (
@@ -210,7 +211,7 @@ class TestArchiveContext:
         assert not (config.chunks_dir / "chunked").exists()
 
     def test_archive_nonexistent_raises(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(FileNotFoundError, match="not found"):
+        with pytest.raises(InsightNotFoundError, match="not found"):
             archive_context("nope")
 
 
@@ -239,7 +240,7 @@ class TestArchiveInsight:
         assert all(ins["id"] != result["id"] for ins in data.get("insights", []))
 
     def test_archive_nonexistent_insight_raises(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(InsightNotFoundError, match="not found"):
             archive_insight("nonexistent-id")
 
 
@@ -269,7 +270,7 @@ class TestRestoreContext:
         assert not (config.archive_dir / "contexts" / "roundtrip").exists()
 
     def test_restore_nonexistent_raises(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(FileNotFoundError, match="not found"):
+        with pytest.raises(InsightNotFoundError, match="not found"):
             restore_context("ghost")
 
 
@@ -300,7 +301,7 @@ class TestRestoreInsight:
         assert all(ins["id"] != insight_id for ins in archived)
 
     def test_restore_nonexistent_insight_raises(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(InsightNotFoundError, match="not found"):
             restore_insight("ghost-id")
 
 
@@ -344,11 +345,11 @@ class TestPurgeArchived:
         assert any(entry["id"] == result["id"] for entry in log)
 
     def test_purge_nonexistent_context_raises(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(FileNotFoundError, match="not found"):
+        with pytest.raises(InsightNotFoundError, match="not found"):
             purge_archived("nope", item_type="context")
 
     def test_purge_nonexistent_insight_raises(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(InsightNotFoundError, match="not found"):
             purge_archived("nope", item_type="insight")
 
     def test_purge_auto_detects_type(self, isolated_data_dir: Path) -> None:
@@ -480,7 +481,7 @@ class TestRetentionEdgeCases:
         assert result["total"] == 0
 
     def test_invalid_item_type_raises(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="Invalid item_type"):
+        with pytest.raises(ValidationError, match="Invalid item_type"):
             purge_archived("anything", item_type="invalid")
 
     def test_multiple_insights_archive(self, isolated_data_dir: Path) -> None:

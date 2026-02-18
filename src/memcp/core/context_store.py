@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from memcp.config import get_config
+from memcp.core.errors import InsightNotFoundError, ValidationError
 from memcp.core.fileutil import (
     atomic_write_json,
     atomic_write_text,
@@ -93,30 +94,32 @@ def load(
     safe_name(name)
 
     if not content and not file_path:
-        raise ValueError("Either content or file_path must be provided")
+        raise ValidationError("Either content or file_path must be provided")
 
     if file_path:
         fp = Path(file_path).expanduser().resolve()
         if not fp.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
+            raise InsightNotFoundError(f"File not found: {file_path}")
 
         config = get_config()
         max_bytes = config.max_context_size_mb * 1024 * 1024
         size = fp.stat().st_size
         if size > max_bytes:
-            raise ValueError(f"File too large: {size} bytes (max {config.max_context_size_mb}MB)")
+            raise ValidationError(
+                f"File too large: {size} bytes (max {config.max_context_size_mb}MB)"
+            )
         content = fp.read_text(encoding="utf-8")
         source = str(fp)
     else:
         source = ""
 
     if not content.strip():
-        raise ValueError("Content cannot be empty")
+        raise ValidationError("Content cannot be empty")
 
     config = get_config()
     max_bytes = config.max_context_size_mb * 1024 * 1024
     if len(content.encode("utf-8")) > max_bytes:
-        raise ValueError(f"Content too large (max {config.max_context_size_mb}MB)")
+        raise ValidationError(f"Content too large (max {config.max_context_size_mb}MB)")
 
     ctx_dir = _context_dir(name)
     content_path = ctx_dir / "content.md"
@@ -166,7 +169,7 @@ def inspect(name: str, preview_lines: int = 5) -> dict[str, Any]:
 
     meta = locked_read_json(meta_path)
     if meta is None:
-        raise FileNotFoundError(f"Context {name!r} not found")
+        raise InsightNotFoundError(f"Context {name!r} not found")
 
     # Read first N lines for preview
     preview = ""
@@ -204,10 +207,10 @@ def get(name: str, start: int = 0, end: int = 0) -> dict[str, Any]:
 
     meta = locked_read_json(meta_path)
     if meta is None:
-        raise FileNotFoundError(f"Context {name!r} not found")
+        raise InsightNotFoundError(f"Context {name!r} not found")
 
     if not content_path.exists():
-        raise FileNotFoundError(f"Context content for {name!r} missing")
+        raise InsightNotFoundError(f"Context content for {name!r} missing")
 
     full_content = content_path.read_text(encoding="utf-8")
 
@@ -295,10 +298,10 @@ def filter_context(name: str, pattern: str, invert: bool = False) -> dict[str, A
 
     meta = locked_read_json(meta_path)
     if meta is None:
-        raise FileNotFoundError(f"Context {name!r} not found")
+        raise InsightNotFoundError(f"Context {name!r} not found")
 
     if not content_path.exists():
-        raise FileNotFoundError(f"Context content for {name!r} missing")
+        raise InsightNotFoundError(f"Context content for {name!r} missing")
 
     content = content_path.read_text(encoding="utf-8")
     lines = content.split("\n")

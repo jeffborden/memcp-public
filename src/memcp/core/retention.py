@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from memcp.config import get_config
+from memcp.core.errors import InsightNotFoundError, ValidationError
 from memcp.core.fileutil import (
     atomic_write_json,
     locked_read_json,
@@ -219,10 +220,10 @@ def archive_context(name: str) -> dict[str, Any]:
 
     meta = locked_read_json(meta_path)
     if meta is None:
-        raise FileNotFoundError(f"Context {name!r} not found")
+        raise InsightNotFoundError(f"Context {name!r} not found")
 
     if not content_path.exists():
-        raise FileNotFoundError(f"Context content for {name!r} missing")
+        raise InsightNotFoundError(f"Context content for {name!r} missing")
 
     # Create archive directory
     archive_ctx_dir = config.archive_dir / "contexts" / name
@@ -260,7 +261,7 @@ def archive_insight(insight_id: str) -> dict[str, Any]:
     try:
         node = graph.get_node(insight_id)
         if node is None:
-            raise ValueError(f"Insight {insight_id!r} not found")
+            raise InsightNotFoundError(f"Insight {insight_id!r} not found")
 
         node["archived_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -283,7 +284,7 @@ def _archive_insight_json(insight_id: str) -> dict[str, Any]:
     config = get_config()
     data = locked_read_json(config.memory_path)
     if data is None:
-        raise ValueError(f"Insight {insight_id!r} not found")
+        raise InsightNotFoundError(f"Insight {insight_id!r} not found")
 
     found = None
     remaining = []
@@ -294,7 +295,7 @@ def _archive_insight_json(insight_id: str) -> dict[str, Any]:
             remaining.append(ins)
 
     if found is None:
-        raise ValueError(f"Insight {insight_id!r} not found")
+        raise InsightNotFoundError(f"Insight {insight_id!r} not found")
 
     found["archived_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -324,10 +325,10 @@ def restore_context(name: str) -> dict[str, Any]:
 
     meta = locked_read_json(meta_path)
     if meta is None:
-        raise FileNotFoundError(f"Archived context {name!r} not found")
+        raise InsightNotFoundError(f"Archived context {name!r} not found")
 
     if not gz_path.exists():
-        raise FileNotFoundError(f"Archived content for {name!r} missing")
+        raise InsightNotFoundError(f"Archived content for {name!r} missing")
 
     # Decompress
     with gzip.open(gz_path, "rt", encoding="utf-8") as f:
@@ -360,7 +361,7 @@ def restore_insight(insight_id: str) -> dict[str, Any]:
             remaining.append(ins)
 
     if found is None:
-        raise ValueError(f"Archived insight {insight_id!r} not found")
+        raise InsightNotFoundError(f"Archived insight {insight_id!r} not found")
 
     # Remove archive metadata
     found.pop("archived_at", None)
@@ -402,7 +403,7 @@ def purge_archived(name_or_id: str, item_type: str = "auto") -> dict[str, Any]:
     elif item_type == "insight":
         return _purge_insight(name_or_id)
     else:
-        raise ValueError(f"Invalid item_type {item_type!r}. Must be: auto, context, insight")
+        raise ValidationError(f"Invalid item_type {item_type!r}. Must be: auto, context, insight")
 
 
 def _purge_context(name: str) -> dict[str, Any]:
@@ -412,7 +413,7 @@ def _purge_context(name: str) -> dict[str, Any]:
 
     meta = locked_read_json(archive_ctx_dir / "meta.json")
     if meta is None:
-        raise FileNotFoundError(f"Archived context {name!r} not found")
+        raise InsightNotFoundError(f"Archived context {name!r} not found")
 
     # Log to purge log
     _log_purge(
@@ -446,7 +447,7 @@ def _purge_insight(insight_id: str) -> dict[str, Any]:
             remaining.append(ins)
 
     if found is None:
-        raise ValueError(f"Archived insight {insight_id!r} not found")
+        raise InsightNotFoundError(f"Archived insight {insight_id!r} not found")
 
     # Log to purge log
     _log_purge(

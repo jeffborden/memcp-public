@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from memcp.core.errors import MemCPError
 from memcp.core.project import get_current_project
 from memcp.core.search import search_all
 
@@ -64,5 +65,5 @@ def do_search(
             indent=2,
             default=str,
         )
-    except ValueError as e:
+    except (ValueError, MemCPError) as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)

@@ -76,10 +76,14 @@ def do_related(
             indent=2,
             default=str,
         )
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
-    except ValueError as e:
-        return json.dumps({"status": "error", "message": str(e)}, indent=2)
+    except Exception as e:
+        from memcp.core.errors import MemCPError
+
+        if isinstance(e, MemCPError):
+            return json.dumps({"status": "error", "message": str(e)}, indent=2)
+        raise
 
 
 def do_graph_stats(project: str = "") -> str:

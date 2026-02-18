@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from memcp.core.errors import ValidationError
 from memcp.core.memory import (
     IMPORTANCE_WEIGHTS,
     VALID_CATEGORIES,
@@ -51,19 +52,19 @@ class TestRemember:
         assert len(result["project"]) > 0
 
     def test_invalid_category(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="Invalid category"):
+        with pytest.raises(ValidationError, match="Invalid category"):
             remember("Test", category="invalid")
 
     def test_invalid_importance(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="Invalid importance"):
+        with pytest.raises(ValidationError, match="Invalid importance"):
             remember("Test", importance="invalid")
 
     def test_empty_content(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="Content cannot be empty"):
+        with pytest.raises(ValidationError, match="Content cannot be empty"):
             remember("")
 
     def test_whitespace_only_content(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="Content cannot be empty"):
+        with pytest.raises(ValidationError, match="Content cannot be empty"):
             remember("   ")
 
     def test_content_stripped(self, isolated_data_dir: Path) -> None:
@@ -201,11 +202,11 @@ class TestRecall:
         assert len(results) >= 1
 
     def test_recall_invalid_category(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="Invalid category"):
+        with pytest.raises(ValidationError, match="Invalid category"):
             recall(category="nonexistent")
 
     def test_recall_invalid_importance(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="Invalid importance"):
+        with pytest.raises(ValidationError, match="Invalid importance"):
             recall(importance="nonexistent")
 
     def test_recall_scope_project(self, isolated_data_dir: Path) -> None:
