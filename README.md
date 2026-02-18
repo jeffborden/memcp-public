@@ -19,7 +19,7 @@
     <a href="https://www.python.org/downloads/"><img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-blue.svg"/></a>
     <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green.svg"/></a>
     <a href="https://github.com/mohamedali-may/memcp/actions"><img alt="CI" src="https://img.shields.io/badge/CI-passing-brightgreen.svg"/></a>
-    <a href="https://pypi.org/project/memcp/"><img alt="PyPI" src="https://img.shields.io/badge/PyPI-v0.2.0-orange.svg"/></a>
+    <a href="https://pypi.org/project/memcp/"><img alt="PyPI" src="https://img.shields.io/badge/PyPI-v0.3.0-orange.svg"/></a>
   </p>
 </p>
 
