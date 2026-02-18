@@ -99,47 +99,93 @@ def keyword_search(
     return results
 
 
+class _BM25Cache:
+    """In-memory cache for BM25 index — avoids rebuilding for same corpus."""
+
+    def __init__(self) -> None:
+        self._corpus_hash: str = ""
+        self._retriever: Any = None
+        self._documents: list[dict[str, Any]] = []
+
+    def _hash_corpus(self, documents: list[dict[str, Any]]) -> str:
+        """Fast hash of document IDs/content to detect corpus changes."""
+        import hashlib
+
+        h = hashlib.md5()  # noqa: S324
+        for doc in documents:
+            h.update(doc.get("id", "").encode())
+            h.update(doc.get("content", "")[:100].encode())
+        return h.hexdigest()
+
+    def search(
+        self,
+        query: str,
+        documents: list[dict[str, Any]],
+        limit: int,
+    ) -> list[tuple[int, float]]:
+        """Search, rebuilding index only if corpus changed.
+
+        Returns list of (doc_index, score) tuples.
+        """
+        import bm25s as _bm25s
+
+        corpus_hash = self._hash_corpus(documents)
+        if corpus_hash != self._corpus_hash or self._retriever is None:
+            corpus_texts = []
+            for doc in documents:
+                text = " ".join(
+                    [
+                        doc.get("content", ""),
+                        doc.get("summary", ""),
+                        " ".join(doc.get("tags", [])),
+                    ]
+                )
+                corpus_texts.append(text)
+
+            corpus_tokens = _bm25s.tokenize(corpus_texts)
+            self._retriever = _bm25s.BM25()
+            self._retriever.index(corpus_tokens)
+            self._corpus_hash = corpus_hash
+            self._documents = documents
+
+        query_tokens = _bm25s.tokenize([query])
+        doc_ids, scores = self._retriever.retrieve(query_tokens, k=min(limit, len(documents)))
+
+        results = []
+        for idx, score in zip(doc_ids[0], scores[0], strict=False):
+            if score > 0:
+                results.append((int(idx), float(score)))
+        return results
+
+    def invalidate(self) -> None:
+        """Force rebuild on next search."""
+        self._corpus_hash = ""
+        self._retriever = None
+
+
+_bm25_cache = _BM25Cache()
+
+
+def invalidate_bm25_cache() -> None:
+    """Invalidate the BM25 cache (call after remember/forget)."""
+    _bm25_cache.invalidate()
+
+
 def bm25_search(
     query: str,
     documents: list[dict[str, Any]],
     limit: int = 10,
     max_tokens: int = 0,
 ) -> list[dict[str, Any]]:
-    """BM25 ranked search using bm25s library."""
+    """BM25 ranked search using bm25s library with cached index."""
     if not BM25_AVAILABLE:
         return keyword_search(query, documents, limit, max_tokens)
-
-    import bm25s as _bm25s
 
     if not documents:
         return []
 
-    # Build corpus
-    corpus_texts = []
-    for doc in documents:
-        text = " ".join(
-            [
-                doc.get("content", ""),
-                doc.get("summary", ""),
-                " ".join(doc.get("tags", [])),
-            ]
-        )
-        corpus_texts.append(text)
-
-    # Tokenize
-    corpus_tokens = _bm25s.tokenize(corpus_texts)
-    query_tokens = _bm25s.tokenize([query])
-
-    # Build and query
-    retriever = _bm25s.BM25()
-    retriever.index(corpus_tokens)
-    doc_ids, scores = retriever.retrieve(query_tokens, k=min(limit, len(documents)))
-
-    results = []
-    for idx, score in zip(doc_ids[0], scores[0], strict=False):
-        if score > 0:
-            doc = {**documents[int(idx)], "_score": float(score)}
-            results.append(doc)
+    scored = _bm25_cache.search(query, documents, limit)
+    results = [{**documents[idx], "_score": score} for idx, score in scored]
 
     if max_tokens > 0:
         results = _apply_token_budget(results, max_tokens)
@@ -379,7 +425,9 @@ def search(
             return bm25_search(query, documents, limit, max_tokens)
         return keyword_search(query, documents, limit, max_tokens)
     else:
-        raise ValueError(
+        from memcp.core.errors import ValidationError
+
+        raise ValidationError(
             f"Unknown search method {method!r}. "
             "Must be: auto, keyword, bm25, fuzzy, semantic, hybrid"
         )

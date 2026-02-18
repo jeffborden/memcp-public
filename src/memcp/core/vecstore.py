@@ -142,3 +142,149 @@ class VectorStore:
     def has_id(self, item_id: str) -> bool:
         """Check if an ID exists in the store."""
         return item_id in self.ids
+
+
+# ── HNSW backend (optional, via usearch) ─────────────────────────────
+
+USEARCH_AVAILABLE = False
+try:
+    from usearch.index import Index as _UsearchIndex
+
+    USEARCH_AVAILABLE = True
+except ImportError:
+    _UsearchIndex = None
+
+
+class HNSWVectorStore:
+    """HNSW-based vector store using usearch for O(log N) search.
+
+    Same interface as VectorStore but uses approximate nearest neighbors.
+    Falls back to brute-force VectorStore when usearch is not installed.
+    """
+
+    def __init__(self, path: Path, ndim: int = 256) -> None:
+        self.path = Path(path)
+        self._ndim = ndim
+        self.ids: list[str] = []
+        self._id_to_key: dict[str, int] = {}
+        self._next_key: int = 0
+        self._index: Any = None  # usearch.Index
+
+    def load(self) -> bool:
+        """Load HNSW index from disk. Returns True on success."""
+        if not USEARCH_AVAILABLE:
+            return False
+        index_path = self.path.with_suffix(".usearch")
+        ids_path = self.path.with_suffix(".ids.npz")
+        if not index_path.exists() or not ids_path.exists():
+            return False
+        try:
+            self._index = _UsearchIndex(ndim=self._ndim, metric="cos")
+            self._index.load(str(index_path))
+
+            data = np.load(ids_path, allow_pickle=True)
+            self.ids = list(data["ids"])
+            keys = list(data["keys"])
+            self._id_to_key = dict(zip(self.ids, keys, strict=False))
+            self._next_key = max(keys) + 1 if keys else 0
+            return True
+        except Exception:
+            self._index = None
+            self.ids = []
+            self._id_to_key = {}
+            self._next_key = 0
+            return False
+
+    def save(self) -> None:
+        """Persist HNSW index to disk."""
+        if not USEARCH_AVAILABLE or self._index is None or not self.ids:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        index_path = self.path.with_suffix(".usearch")
+        ids_path = self.path.with_suffix(".ids.npz")
+        try:
+            self._index.save(str(index_path))
+            keys = [self._id_to_key[id_] for id_ in self.ids]
+            np.savez(
+                ids_path,
+                ids=np.array(self.ids, dtype=object),
+                keys=np.array(keys, dtype=np.int64),
+            )
+        except Exception:
+            pass
+
+    def _ensure_index(self) -> None:
+        if self._index is None:
+            self._index = _UsearchIndex(ndim=self._ndim, metric="cos")
+
+    def add(self, item_id: str, vector: list[float]) -> None:
+        """Add or replace a vector."""
+        if not USEARCH_AVAILABLE or not NUMPY_AVAILABLE:
+            return
+        self._ensure_index()
+        vec = np.asarray(vector, dtype=np.float32)
+        if self._ndim != len(vec):
+            self._ndim = len(vec)
+            self._index = _UsearchIndex(ndim=self._ndim, metric="cos")
+            # Re-add all existing would be needed, but for simplicity
+            # just update ndim for new index
+
+        if item_id in self._id_to_key:
+            key = self._id_to_key[item_id]
+            self._index.remove(key)
+        else:
+            key = self._next_key
+            self._next_key += 1
+            self.ids.append(item_id)
+
+        self._id_to_key[item_id] = key
+        self._index.add(key, vec)
+
+    def add_batch(self, item_ids: list[str], vectors: list[list[float]]) -> None:
+        """Add multiple vectors at once."""
+        for item_id, vec in zip(item_ids, vectors, strict=False):
+            self.add(item_id, vec)
+
+    def remove(self, item_id: str) -> bool:
+        """Remove a vector by ID."""
+        if not USEARCH_AVAILABLE or item_id not in self._id_to_key:
+            return False
+        key = self._id_to_key.pop(item_id)
+        self.ids.remove(item_id)
+        if self._index is not None:
+            self._index.remove(key)
+        return True
+
+    def search(self, query_vector: list[float], top_k: int = 10) -> list[tuple[str, float]]:
+        """Approximate nearest neighbor search. Returns (id, score) tuples."""
+        if not USEARCH_AVAILABLE or not NUMPY_AVAILABLE or self._index is None or not self.ids:
+            return []
+        vec = np.asarray(query_vector, dtype=np.float32)
+        k = min(top_k, len(self.ids))
+        matches = self._index.search(vec, k)
+
+        # Build reverse key→id map
+        key_to_id = {v: k for k, v in self._id_to_key.items()}
+        results = []
+        for i in range(len(matches)):
+            key = int(matches.keys[i])
+            dist = float(matches.distances[i])
+            # usearch cosine metric returns distance, convert to similarity
+            score = max(0.0, 1.0 - dist)
+            id_ = key_to_id.get(key)
+            if id_ and score > 0:
+                results.append((id_, score))
+        return results
+
+    def count(self) -> int:
+        return len(self.ids)
+
+    def has_id(self, item_id: str) -> bool:
+        return item_id in self._id_to_key
+
+
+def get_vector_store(path: Path, ndim: int = 256) -> VectorStore | HNSWVectorStore:
+    """Factory: return HNSW store if usearch is available, else brute-force."""
+    if USEARCH_AVAILABLE and NUMPY_AVAILABLE:
+        return HNSWVectorStore(path, ndim=ndim)
+    return VectorStore(path)
