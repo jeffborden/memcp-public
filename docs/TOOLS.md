@@ -1,6 +1,6 @@
 # MemCP Tool Reference
 
-21 MCP tools across 7 phases. All tools return JSON strings.
+24 MCP tools across 8 phases. All tools return JSON strings.
 
 ## Phase 1: Memory Tools
 
@@ -403,6 +403,102 @@ memcp_graph_stats()
 
 ---
 
+## Phase 4: Cognitive Memory Tools
+
+### memcp_reinforce
+
+```
+memcp_reinforce(
+    insight_id: str,
+    helpful: bool = True,
+    note: str = "",
+) → str
+```
+
+Provide feedback on an insight — mark it as helpful or misleading. Affects future ranking via `feedback_score`.
+
+| Parameter | Description |
+|-----------|-------------|
+| `insight_id` | The ID of the insight to reinforce |
+| `helpful` | `True` if the insight was helpful, `False` if misleading |
+| `note` | Optional note about why |
+
+**Logic:**
+- `helpful=True`: `feedback_score += 0.1`, boost connected edges by 0.02
+- `helpful=False`: `feedback_score -= 0.2`, weaken connected edges by 0.05
+- `feedback_score` clamped to `[-1.0, 1.0]`
+- Ranking adjustment: `total_score *= (1 + feedback_score * 0.3)`
+
+**Examples:**
+```
+memcp_reinforce("a1b2c3d4", helpful=True)
+memcp_reinforce("a1b2c3d4", helpful=False, note="Outdated info")
+```
+
+---
+
+### memcp_consolidation_preview
+
+```
+memcp_consolidation_preview(
+    threshold: float = 0.85,
+    limit: int = 20,
+    project: str = "",
+) → str
+```
+
+Preview groups of similar insights that could be merged. Dry-run — no changes made.
+
+| Parameter | Description |
+|-----------|-------------|
+| `threshold` | Similarity threshold for grouping (default 0.85, configurable via `MEMCP_CONSOLIDATION_THRESHOLD`) |
+| `limit` | Max groups to return (default 20) |
+| `project` | Filter by project (empty = all) |
+
+Uses embedding similarity (if available) or keyword Jaccard overlap. Groups found via Union-Find.
+
+**Example:**
+```
+memcp_consolidation_preview(threshold=0.7)
+# Returns: groups of similar insights with their IDs and content
+```
+
+---
+
+### memcp_consolidate
+
+```
+memcp_consolidate(
+    group_ids: str,
+    keep_id: str = "",
+    merged_content: str = "",
+) → str
+```
+
+Merge a group of similar insights into one.
+
+| Parameter | Description |
+|-----------|-------------|
+| `group_ids` | Comma-separated IDs to merge |
+| `keep_id` | Which ID to keep (default: most accessed) |
+| `merged_content` | Optional override for the kept insight's content |
+
+**Merge logic:**
+- Union all tags and entities from the group
+- Keep the highest importance level
+- Sum access counts
+- Re-point edges from deleted nodes to the kept node
+- Delete the other nodes
+
+**Examples:**
+```
+memcp_consolidate("id1,id2,id3")
+memcp_consolidate("id1,id2", keep_id="id1")
+memcp_consolidate("id1,id2", merged_content="Combined insight text")
+```
+
+---
+
 ## Phase 6: Retention Lifecycle Tools
 
 ### memcp_retention_preview
@@ -534,8 +630,11 @@ memcp_sessions(project="memcp", limit=5)  # Last 5 sessions for memcp project
 | 14 | `memcp_search` | 2 | Search across memory + contexts |
 | 15 | `memcp_related` | 3 | Graph traversal |
 | 16 | `memcp_graph_stats` | 3 | Graph statistics |
-| 17 | `memcp_retention_preview` | 6 | Dry-run retention actions |
-| 18 | `memcp_retention_run` | 6 | Execute archive/purge |
-| 19 | `memcp_restore` | 6 | Restore from archive |
-| 20 | `memcp_projects` | 7 | List projects with stats |
-| 21 | `memcp_sessions` | 7 | Browse sessions |
+| 17 | `memcp_reinforce` | 4 | Feedback — mark insight as helpful/misleading |
+| 18 | `memcp_consolidation_preview` | 4 | Preview similar insight groups (dry-run) |
+| 19 | `memcp_consolidate` | 4 | Merge similar insights into one |
+| 20 | `memcp_retention_preview` | 6 | Dry-run retention actions |
+| 21 | `memcp_retention_run` | 6 | Execute archive/purge |
+| 22 | `memcp_restore` | 6 | Restore from archive |
+| 23 | `memcp_projects` | 7 | List projects with stats |
+| 24 | `memcp_sessions` | 7 | Browse sessions |

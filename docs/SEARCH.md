@@ -6,7 +6,7 @@ MemCP uses a tiered search architecture that auto-selects the best available met
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Hybrid Fusion (alpha * semantic + (1-alpha) * BM25)    │  pip install memcp[semantic,search]
+│  Hybrid RRF Fusion (BM25 + Semantic + Graph scores)     │  pip install memcp[semantic,search]
 ├─────────────────────────────────────────────────────────┤
 │  Semantic Search (model2vec or fastembed + cosine sim)   │  pip install memcp[semantic]
 ├─────────────────────────────────────────────────────────┤
@@ -72,19 +72,33 @@ You can also force a specific method: `search(query, method="fuzzy")`.
 - **Strengths**: Understands synonyms, paraphrases, semantic similarity
 - **Weaknesses**: Requires model download, higher memory usage
 
-### Hybrid Search
+### Hybrid Search (RRF Fusion)
 
 - **Deps**: BM25 + Semantic (both required)
 - **Install**: `pip install memcp[search,semantic]`
-- **How it works**: Runs both BM25 and semantic search on the full document set, normalizes BM25 scores to [0,1], then fuses:
+- **How it works**: Runs BM25, semantic, and graph-boosted searches, then fuses results using **Reciprocal Rank Fusion (RRF)**:
+
+```
+score(d) = Σ 1/(k + rank_i(d))
+```
+
+Where `k=60` (standard constant from Cormack et al. 2009) and `rank_i(d)` is the 1-indexed position of document `d` in ranked list `i`.
+
+- **Three-way fusion**: BM25 ranked list + semantic ranked list + graph-boosted ranked list are fused via RRF. This is score-agnostic — no normalization needed.
+- **RRF K**: Default 60. Configurable via `MEMCP_RRF_K` env var.
+- **Strengths**: Score-agnostic (no BM25 normalization issues), robust to outliers, naturally extends to 3+ sources
+- **Weaknesses**: Rank-only — ignores score magnitude differences between sources
+
+### Hybrid Search (Alpha Blend) — Legacy
+
+- **Method**: `method="hybrid-alpha"`
+- **How it works**: The original fusion method, kept for backward compatibility:
 
 ```
 final_score = alpha * semantic_score + (1 - alpha) * bm25_score_normalized
 ```
 
 - **Alpha**: Default 0.6 (60% semantic, 40% BM25). Configurable via `MEMCP_SEARCH_ALPHA` env var.
-- **Strengths**: Best of both worlds — keyword precision + semantic understanding
-- **Weaknesses**: Slowest tier (runs two full searches)
 
 ## Token Budgeting
 

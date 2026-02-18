@@ -19,7 +19,7 @@
     <a href="https://www.python.org/downloads/"><img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-blue.svg"/></a>
     <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green.svg"/></a>
     <a href="https://github.com/mohamedali-may/memcp/actions"><img alt="CI" src="https://img.shields.io/badge/CI-passing-brightgreen.svg"/></a>
-    <a href="https://pypi.org/project/memcp/"><img alt="PyPI" src="https://img.shields.io/badge/PyPI-v0.1.0-orange.svg"/></a>
+    <a href="https://pypi.org/project/memcp/"><img alt="PyPI" src="https://img.shields.io/badge/PyPI-v0.2.0-orange.svg"/></a>
   </p>
 </p>
 
@@ -48,7 +48,7 @@ MemCP implements the **RLM framework** (Recursive Language Model, [arXiv:2512.24
 ```mermaid
 graph TB
     CC[Claude Code] -->|MCP Protocol| S[MemCP Server<br/>FastMCP]
-    S --> M[Memory<br/>21 tools]
+    S --> M[Memory<br/>24 tools]
     S --> G[MAGMA Graph<br/>SQLite]
     S --> SR[Search<br/>5 tiers]
     S --> C[Context Store<br/>Filesystem]
@@ -78,10 +78,14 @@ graph TB
 ## Features
 
 ### Memory & Knowledge Graph
-- **21 MCP tools** — remember, recall, forget, search, chunk, filter, traverse, and more
+- **24 MCP tools** — remember, recall, forget, search, chunk, filter, traverse, reinforce, consolidate, and more
 - **MAGMA 4-graph** — insights connect via semantic, temporal, causal, and entity edges in SQLite
+- **Hebbian co-retrieval strengthening** — edges between frequently co-recalled insights strengthen automatically
+- **Activation-based edge decay** — stale, unused edges fade over time (exponential decay with configurable half-life)
+- **Memory feedback** — mark insights as helpful or misleading via `memcp_reinforce`; affects future ranking
+- **Memory consolidation** — detect and merge near-duplicate insights via `memcp_consolidation_preview` + `memcp_consolidate`
 - **Intent-aware recall** — "why did we choose X?" follows causal edges; "when was Y decided?" follows temporal edges
-- **Auto entity extraction** — regex-based (files, modules, URLs, CamelCase) + LLM-based via sub-agents
+- **Auto entity extraction** — regex-based (files, modules, URLs, CamelCase) + optional spaCy NER (`pip install memcp[ner]`) + LLM-based via sub-agents
 - **Secret detection** — blocks accidental storage of API keys, tokens, and credentials (8 regex patterns)
 - **Semantic deduplication** — optional embedding-based similarity check prevents near-duplicate insights
 
@@ -91,8 +95,9 @@ graph TB
 - **RLM navigation** — peek, grep, filter without loading entire documents
 
 ### Search
-- **5-tier search** — keyword (stdlib) → BM25 (bm25s) → fuzzy (rapidfuzz) → semantic (model2vec/fastembed) → hybrid fusion
+- **5-tier search** — keyword (stdlib) → BM25 (bm25s) → fuzzy (rapidfuzz) → semantic (model2vec/fastembed) → hybrid RRF fusion
 - **Persistent BM25 index** — corpus-hash-based cache avoids per-query index rebuilds
+- **Reciprocal Rank Fusion** — score-agnostic fusion of BM25 + semantic + graph results (replaces alpha-weighted blend)
 - **HNSW vector index** — optional `usearch` backend for O(log N) approximate nearest neighbor search
 - **Graceful degradation** — always works with zero optional deps; each extra unlocks better search
 - **Token budgeting** — `max_tokens` parameter caps how much enters the context window
@@ -109,7 +114,7 @@ graph TB
 - **Multi-session** — tracks sessions with timestamps and insight counts
 
 ### Developer Experience
-- **421 tests** across 19 test files (unit + integration + concurrency), CI on Python 3.10/3.11/3.12
+- **458 tests** across 22 test files (unit + integration + concurrency), CI on Python 3.10/3.11/3.12
 - **77 benchmarks** — token efficiency, context rot, window management, scale behavior
 - **Interactive installer** — step-by-step setup with `bash scripts/install.sh`
 - **Docker support** — single-command containerized deployment
@@ -119,7 +124,7 @@ graph TB
 
 ## Available MCP Tools
 
-MemCP exposes **21 MCP tools** organized into 6 categories. For full documentation with parameters, examples, and tips, see [docs/TOOLS.md](docs/TOOLS.md).
+MemCP exposes **24 MCP tools** organized into 8 categories. For full documentation with parameters, examples, and tips, see [docs/TOOLS.md](docs/TOOLS.md).
 
 ### Core Memory (5 tools)
 
@@ -156,6 +161,14 @@ MemCP exposes **21 MCP tools** organized into 6 categories. For full documentati
 |------|-------------|
 | `memcp_related` | Traverse graph from an insight — find connected knowledge via semantic, temporal, causal, or entity edges |
 | `memcp_graph_stats` | Graph statistics — node count, edge counts by type, top entities |
+
+### Cognitive Memory (3 tools)
+
+| Tool | Description |
+|------|-------------|
+| `memcp_reinforce` | Provide feedback on an insight — mark as helpful or misleading, affects ranking |
+| `memcp_consolidation_preview` | Preview groups of similar insights that could be merged (dry-run) |
+| `memcp_consolidate` | Merge a group of similar insights into one — unions tags, keeps best importance |
 
 ### Retention Lifecycle (3 tools)
 
@@ -441,7 +454,8 @@ For analyzing a large document across multiple chunks in parallel:
 ```
 memcp/
 ├── src/memcp/
-│   ├── server.py                # FastMCP server — 21 tool definitions (async)
+│   ├── __init__.py              # Package version
+│   ├── server.py                # FastMCP server — 24 tool definitions (async)
 │   ├── config.py                # Environment config (dataclass) + validation
 │   ├── core/
 │   │   ├── memory.py            # remember, recall, forget, status + semantic dedup
@@ -449,8 +463,9 @@ memcp/
 │   │   ├── secrets.py           # Secret detection (8 regex patterns)
 │   │   ├── graph.py             # MAGMA 4-graph facade (delegates to components)
 │   │   ├── node_store.py        # SQLite connection, schema, node CRUD, entity index
-│   │   ├── edge_manager.py      # 4-type edge generation and queries
+│   │   ├── edge_manager.py      # 4-type edge generation, Hebbian learning, edge decay
 │   │   ├── graph_traversal.py   # Query routing, intent detection, graph traversal
+│   │   ├── consolidation.py     # Similarity grouping + merge logic
 │   │   ├── async_utils.py       # Thread pool executor for non-blocking I/O
 │   │   ├── context_store.py     # Named context variables on disk
 │   │   ├── chunker.py           # 6 splitting strategies
@@ -465,6 +480,8 @@ memcp/
 │       ├── context_tools.py     # Context + chunking tool implementations
 │       ├── search_tools.py      # Search tool implementation
 │       ├── graph_tools.py       # Graph traversal tools
+│       ├── feedback_tools.py    # Feedback/reinforce tool
+│       ├── consolidation_tools.py # Consolidation preview + merge tools
 │       ├── retention_tools.py   # Retention lifecycle tools
 │       └── project_tools.py     # Project/session tools
 ├── hooks/
@@ -485,7 +502,7 @@ memcp/
 │   └── uninstall.sh             # Cleanup script
 ├── docs/
 │   ├── ARCHITECTURE.md          # System design + Mermaid diagrams
-│   ├── TOOLS.md                 # All 21 tools reference
+│   ├── TOOLS.md                 # All 24 tools reference
 │   ├── SEARCH.md                # Tiered search system
 │   ├── GRAPH.md                 # MAGMA 4-graph memory
 │   ├── HOOKS.md                 # Auto-save hooks
@@ -501,9 +518,12 @@ memcp/
 │       ├── 007-auto-save-hook-architecture.md
 │       ├── 008-three-zone-retention-lifecycle.md
 │       ├── 009-user-level-global-deployment.md
-│       └── 010-twelve-factor-configuration.md
+│       ├── 010-twelve-factor-configuration.md
+│       ├── 011-hebbian-learning-edge-decay.md
+│       ├── 012-reciprocal-rank-fusion-search.md
+│       └── 013-memory-feedback-consolidation.md
 ├── tests/
-│   ├── unit/                   # 18 test files, 391 unit tests
+│   ├── unit/                   # 22 test files, 428 unit tests
 │   ├── integration/            # 30 integration + concurrency stress tests
 │   └── benchmark/              # 77 benchmarks (token efficiency, context rot, scale)
 ├── benchmark_output/           # Generated benchmark reports
@@ -540,6 +560,12 @@ All configuration is via environment variables (12-factor):
 | `MEMCP_SECRET_DETECTION` | `true` | Enable/disable secret detection on `remember()` |
 | `MEMCP_SEMANTIC_DEDUP` | `false` | Enable semantic deduplication (requires embeddings) |
 | `MEMCP_DEDUP_THRESHOLD` | `0.95` | Cosine similarity threshold for semantic dedup |
+| `MEMCP_HEBBIAN_ENABLED` | `true` | Enable/disable Hebbian co-retrieval strengthening |
+| `MEMCP_HEBBIAN_BOOST` | `0.05` | Weight boost per co-retrieval event |
+| `MEMCP_EDGE_DECAY_HALF_LIFE` | `30` | Half-life in days for edge weight decay |
+| `MEMCP_EDGE_MIN_WEIGHT` | `0.05` | Minimum edge weight before pruning |
+| `MEMCP_RRF_K` | `60` | RRF fusion smoothing constant |
+| `MEMCP_CONSOLIDATION_THRESHOLD` | `0.85` | Similarity threshold for consolidation grouping |
 
 ---
 
@@ -556,6 +582,7 @@ MemCP's tiered dependency system means core features work with zero extras:
 | `cache` | diskcache | Persistent embedding cache | ~1MB |
 | `vectors` | sqlite-vec | SIMD-accelerated KNN in SQLite | ~2MB |
 | `hnsw` | usearch + numpy | HNSW approximate nearest neighbor (O(log N)) | ~5MB |
+| `ner` | spacy | spaCy NER entity extraction (`en_core_web_sm`) | ~50MB |
 | `async` | aiosqlite | Async SQLite (Phase 3 full async) | ~0.1MB |
 
 ```bash
@@ -573,13 +600,13 @@ pip install memcp[all]                     # Everything
 |----------|-------------|
 | [templates/CLAUDE.md](templates/CLAUDE.md) | Session instructions for Claude Code — deployed to project root by installer |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design with Mermaid diagrams, data flows, directory layout |
-| [docs/TOOLS.md](docs/TOOLS.md) | All 21 tools — signatures, parameters, examples, tips |
+| [docs/TOOLS.md](docs/TOOLS.md) | All 24 tools — signatures, parameters, examples, tips |
 | [docs/SEARCH.md](docs/SEARCH.md) | Tiered search system — how each tier works, installation, degradation |
 | [docs/GRAPH.md](docs/GRAPH.md) | MAGMA 4-graph — edge types, intent detection, entity extraction, traversal |
 | [docs/HOOKS.md](docs/HOOKS.md) | Auto-save hooks — setup, behavior, customization |
 | [docs/COMPARISON.md](docs/COMPARISON.md) | MemCP vs rlm-claude, CLAUDE.md, Letta, mem0, MAGMA |
 | [benchmark_output/benchmark_report.md](benchmark_output/benchmark_report.md) | Benchmark results — token efficiency, context rot, scale (77 benchmarks) |
-| [docs/adr/](docs/adr/) | Architecture Decision Records — 10 ADRs documenting key technical choices |
+| [docs/adr/](docs/adr/) | Architecture Decision Records — 13 ADRs documenting key technical choices |
 
 ---
 

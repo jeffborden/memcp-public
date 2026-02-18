@@ -18,6 +18,9 @@ ADRs document significant architectural and technology choices made during the d
 | [ADR-008](008-three-zone-retention-lifecycle.md) | 3-Zone Retention Lifecycle | Accepted | 2026-02-08 |
 | [ADR-009](009-user-level-global-deployment.md) | User-Level Global Deployment | Accepted | 2026-02-09 |
 | [ADR-010](010-twelve-factor-configuration.md) | 12-Factor Configuration | Accepted | 2026-02-07 |
+| [ADR-011](011-hebbian-learning-edge-decay.md) | Hebbian Co-Retrieval Strengthening and Edge Decay | Accepted | 2026-02-18 |
+| [ADR-012](012-reciprocal-rank-fusion-search.md) | Reciprocal Rank Fusion Search | Accepted | 2026-02-18 |
+| [ADR-013](013-memory-feedback-consolidation.md) | Memory Feedback and Consolidation | Accepted | 2026-02-18 |
 
 ## Format
 

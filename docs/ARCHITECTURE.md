@@ -78,7 +78,8 @@ flowchart LR
     D -->|what| G[Boost semantic edges]
     D -->|who/which| H[Boost entity edges]
     D -->|default| I[Hybrid traversal]
-    E & F & G & H & I --> J[Rank + return results]
+    E & F & G & H & I --> HEB[Hebbian strengthen co-retrieved]
+    HEB --> J[Rank + feedback boost + return results]
     J --> K{max_tokens?}
     K -->|Yes| L[Apply token budget]
     K -->|No| M[Return all matches]
@@ -90,7 +91,7 @@ Intent detection examines the query prefix:
 - `"who..."` or `"which..."` → emphasizes **entity** edges
 - Default → emphasizes **semantic** edges
 
-Ranking uses a weighted formula: `keyword_score * 0.7 + edge_boost * 0.3`.
+Ranking uses a weighted formula: `keyword_score * 0.7 + edge_boost * 0.3`, then adjusts by feedback score: `total_score *= (1 + feedback_score * 0.3)`. After ranking, Hebbian learning strengthens edges between co-retrieved results.
 
 ## Search Tier Stack
 
@@ -101,7 +102,7 @@ flowchart TD
         K1[Keyword Search<br/>stdlib - always available] --> K2[BM25 Search<br/>bm25s - pip install memcp search]
         K2 --> K3[Fuzzy Search<br/>rapidfuzz - pip install memcp fuzzy]
         K3 --> K4[Semantic Search<br/>model2vec/fastembed - pip install memcp semantic]
-        K4 --> K5[Hybrid Fusion<br/>alpha * semantic + 1-alpha * BM25]
+        K4 --> K5[Hybrid RRF Fusion<br/>BM25 + Semantic + Graph scores]
     end
 
     Q[memcp_search query] --> AUTO{Auto-select<br/>best available}
@@ -198,6 +199,7 @@ core/*.py          # Business logic — returns plain dicts, no JSON serializati
   core/errors.py     # MemCPError hierarchy (5 exception types)
   core/secrets.py    # Secret detection (8 regex patterns)
   core/graph.py      # Thin facade → node_store.py + edge_manager.py + graph_traversal.py
+  core/consolidation.py  # Similarity grouping + merge logic
   core/async_utils.py  # ThreadPoolExecutor for non-blocking I/O
 ```
 
@@ -286,6 +288,12 @@ All configuration is via environment variables (12-factor):
 | `MEMCP_SECRET_DETECTION` | `true` | Enable/disable secret detection on `remember()` |
 | `MEMCP_SEMANTIC_DEDUP` | `false` | Enable semantic deduplication (requires embeddings) |
 | `MEMCP_DEDUP_THRESHOLD` | `0.95` | Cosine similarity threshold for semantic dedup |
+| `MEMCP_HEBBIAN_ENABLED` | `true` | Enable/disable Hebbian co-retrieval strengthening |
+| `MEMCP_HEBBIAN_BOOST` | `0.05` | Weight boost per co-retrieval event |
+| `MEMCP_EDGE_DECAY_HALF_LIFE` | `30` | Half-life in days for edge weight decay |
+| `MEMCP_EDGE_MIN_WEIGHT` | `0.05` | Minimum edge weight before pruning |
+| `MEMCP_RRF_K` | `60` | RRF fusion smoothing constant |
+| `MEMCP_CONSOLIDATION_THRESHOLD` | `0.85` | Similarity threshold for consolidation grouping |
 
 ## Technology Stack
 
