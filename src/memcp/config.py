@@ -41,6 +41,26 @@ class MemCPConfig:
     retention_purge_days: int = field(
         default_factory=lambda: _parse_int_env("MEMCP_RETENTION_PURGE_DAYS", 180)
     )
+    # Hebbian learning
+    hebbian_enabled: bool = field(
+        default_factory=lambda: os.getenv("MEMCP_HEBBIAN_ENABLED", "true").lower() == "true"
+    )
+    hebbian_boost: float = field(
+        default_factory=lambda: float(os.getenv("MEMCP_HEBBIAN_BOOST", "0.05"))
+    )
+    # Edge decay
+    edge_decay_half_life: int = field(
+        default_factory=lambda: _parse_int_env("MEMCP_EDGE_DECAY_HALF_LIFE", 30)
+    )
+    edge_min_weight: float = field(
+        default_factory=lambda: float(os.getenv("MEMCP_EDGE_MIN_WEIGHT", "0.05"))
+    )
+    # RRF search
+    rrf_k: int = field(default_factory=lambda: _parse_int_env("MEMCP_RRF_K", 60))
+    # Consolidation
+    consolidation_threshold: float = field(
+        default_factory=lambda: float(os.getenv("MEMCP_CONSOLIDATION_THRESHOLD", "0.85"))
+    )
 
     def __post_init__(self) -> None:
         self.data_dir = self.data_dir.expanduser().resolve()

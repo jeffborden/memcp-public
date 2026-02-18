@@ -5,6 +5,7 @@ Phase 2: +9 tools (context load/inspect/get/chunk/peek/filter/list/clear, search
 Phase 3: +2 tools (related, graph_stats).
 Phase 6: +3 tools (retention_preview, retention_run, restore).
 Phase 7: +2 tools (projects, sessions).
+Step 2: +3 tools (reinforce, consolidation_preview, consolidate).
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from memcp.core.memory import (
     recall,
     remember,
 )
+from memcp.tools.consolidation_tools import do_consolidate, do_consolidation_preview
 from memcp.tools.context_tools import (
     do_chunk_context,
     do_clear_context,
@@ -32,6 +34,7 @@ from memcp.tools.context_tools import (
     inspect_context,
     load_context,
 )
+from memcp.tools.feedback_tools import do_reinforce
 from memcp.tools.graph_tools import do_graph_stats, do_related
 from memcp.tools.project_tools import do_projects, do_sessions
 from memcp.tools.retention_tools import do_restore, do_retention_preview, do_retention_run
@@ -503,6 +506,66 @@ def memcp_sessions(project: str = "", limit: int = 20) -> str:
         limit: Max sessions to return (default 20)
     """
     return do_sessions(project=project, limit=limit)
+
+
+# ── Step 2: Cognitive Memory Tools ─────────────────────────────────
+
+
+@mcp.tool()
+async def memcp_reinforce(
+    insight_id: str,
+    helpful: bool = True,
+    note: str = "",
+) -> str:
+    """Provide feedback on an insight — mark it as helpful or misleading.
+
+    Helpful insights get a score boost and stronger edges.
+    Misleading insights get penalized. This closes the learning loop.
+
+    Args:
+        insight_id: The ID of the insight to reinforce
+        helpful: True if the insight was helpful, False if misleading
+        note: Optional note about why
+    """
+    return await run_sync(do_reinforce, insight_id, helpful, note)
+
+
+@mcp.tool()
+async def memcp_consolidation_preview(
+    threshold: float = 0.0,
+    limit: int = 20,
+    project: str = "",
+) -> str:
+    """Preview groups of similar insights that could be merged.
+
+    Finds near-duplicate or very similar insights and groups them.
+    Dry-run — no changes made. Use memcp_consolidate to merge.
+
+    Args:
+        threshold: Similarity threshold (0 = use default 0.85)
+        limit: Max groups to return
+        project: Filter by project
+    """
+    return await run_sync(do_consolidation_preview, threshold, limit, project)
+
+
+@mcp.tool()
+async def memcp_consolidate(
+    group_ids: str,
+    keep_id: str = "",
+    merged_content: str = "",
+) -> str:
+    """Merge a group of similar insights into one.
+
+    Keeps the best insight (most accessed by default), merges tags/entities
+    from others, redirects edges, and deletes duplicates.
+
+    Args:
+        group_ids: Comma-separated insight IDs to merge
+        keep_id: Which ID to keep (default: most accessed)
+        merged_content: Optional override for the merged content
+    """
+    return await run_sync(do_consolidate, group_ids, keep_id, merged_content)
 
 
 def _init_session() -> None:

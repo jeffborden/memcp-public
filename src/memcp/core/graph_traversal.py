@@ -70,6 +70,19 @@ class GraphTraversal:
         else:
             nodes = nodes[:limit]
 
+        # Hebbian: strengthen edges between co-retrieved nodes
+        if len(nodes) >= 2:
+            from memcp.config import get_config
+
+            config = get_config()
+            if config.hebbian_enabled:
+                result_ids = [n["id"] for n in nodes[:10]]
+                self._edge_manager.strengthen_co_retrieved(result_ids, config.hebbian_boost)
+                # Lazy edge decay (rate-limited to once per hour)
+                self._edge_manager.decay_stale_edges(
+                    config.edge_decay_half_life, config.edge_min_weight
+                )
+
         if max_tokens > 0:
             budgeted: list[dict[str, Any]] = []
             tokens_used = 0
@@ -217,6 +230,10 @@ class GraphTraversal:
             keyword_score = len(overlap) / len(query_tokens)
             edge_boost = self._compute_edge_boost(node["id"], intent)
             total_score = keyword_score * 0.7 + edge_boost * 0.3
+
+            # Apply feedback score boost/penalty
+            feedback_score = node.get("feedback_score", 0.0) or 0.0
+            total_score *= 1 + feedback_score * 0.3
 
             scored.append((total_score, node))
 
