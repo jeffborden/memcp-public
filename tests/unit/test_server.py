@@ -40,9 +40,9 @@ class TestPing:
 
 
 class TestRememberRecallForget:
-    def test_remember_and_recall(self, isolated_data_dir: Path) -> None:
+    async def test_remember_and_recall(self, isolated_data_dir: Path) -> None:
         result = json.loads(
-            memcp_remember(
+            await memcp_remember(
                 content="Integration test insight",
                 category="fact",
                 importance="high",
@@ -52,29 +52,29 @@ class TestRememberRecallForget:
         assert result["status"] == "saved"
         insight_id = result["id"]
 
-        recall_result = json.loads(memcp_recall(query="integration", scope="all"))
+        recall_result = json.loads(await memcp_recall(query="integration", scope="all"))
         assert recall_result["status"] == "ok"
         assert recall_result["count"] >= 1
         found = any(i["id"] == insight_id for i in recall_result["insights"])
         assert found
 
-    def test_forget(self, isolated_data_dir: Path) -> None:
-        result = json.loads(memcp_remember(content="To be forgotten", category="general"))
+    async def test_forget(self, isolated_data_dir: Path) -> None:
+        result = json.loads(await memcp_remember(content="To be forgotten", category="general"))
         insight_id = result["id"]
 
         forget_result = json.loads(memcp_forget(insight_id))
         assert forget_result["status"] == "removed"
 
-        recall_result = json.loads(memcp_recall(query="forgotten", scope="all"))
+        recall_result = json.loads(await memcp_recall(query="forgotten", scope="all"))
         found = any(i["id"] == insight_id for i in recall_result.get("insights", []))
         assert not found
 
-    def test_remember_invalid_category(self) -> None:
-        result = json.loads(memcp_remember(content="test", category="invalid"))
+    async def test_remember_invalid_category(self) -> None:
+        result = json.loads(await memcp_remember(content="test", category="invalid"))
         assert result["status"] == "error"
 
-    def test_remember_empty_content(self) -> None:
-        result = json.loads(memcp_remember(content=""))
+    async def test_remember_empty_content(self) -> None:
+        result = json.loads(await memcp_remember(content=""))
         assert result["status"] == "error"
 
     def test_forget_nonexistent(self) -> None:
@@ -88,8 +88,8 @@ class TestStatus:
         assert result["status"] == "ok"
         assert result["total_insights"] == 0
 
-    def test_status_after_remember(self, isolated_data_dir: Path) -> None:
-        memcp_remember(content="Status test", category="fact", importance="high")
+    async def test_status_after_remember(self, isolated_data_dir: Path) -> None:
+        await memcp_remember(content="Status test", category="fact", importance="high")
         result = json.loads(memcp_status())
         assert result["total_insights"] == 1
 
@@ -151,20 +151,22 @@ class TestContextTools:
 
 
 class TestSearch:
-    def test_search_memory(self, isolated_data_dir: Path) -> None:
-        memcp_remember(content="Search integration test fact", category="fact", tags="search")
-        result = json.loads(memcp_search(query="integration", source="memory", scope="all"))
+    async def test_search_memory(self, isolated_data_dir: Path) -> None:
+        await memcp_remember(content="Search integration test fact", category="fact", tags="search")
+        result = json.loads(await memcp_search(query="integration", source="memory", scope="all"))
         assert result["status"] == "ok"
         assert result["count"] >= 1
 
-    def test_search_contexts(self, isolated_data_dir: Path) -> None:
+    async def test_search_contexts(self, isolated_data_dir: Path) -> None:
         memcp_load_context(name="search-ctx", content="Searchable context content here")
         memcp_chunk_context(name="search-ctx", strategy="lines")
-        result = json.loads(memcp_search(query="searchable", source="contexts", scope="all"))
+        result = json.loads(await memcp_search(query="searchable", source="contexts", scope="all"))
         assert result["status"] == "ok"
 
-    def test_search_empty(self, isolated_data_dir: Path) -> None:
-        result = json.loads(memcp_search(query="nonexistent_query_xyz", source="all", scope="all"))
+    async def test_search_empty(self, isolated_data_dir: Path) -> None:
+        result = json.loads(
+            await memcp_search(query="nonexistent_query_xyz", source="all", scope="all")
+        )
         assert result["status"] == "ok"
         assert result["count"] == 0
 
@@ -179,18 +181,18 @@ class TestGraphTools:
         result = json.loads(memcp_related(insight_id="nonexistent"))
         assert result["status"] == "error"
 
-    def test_related_after_remember(self, isolated_data_dir: Path) -> None:
+    async def test_related_after_remember(self, isolated_data_dir: Path) -> None:
         # Initialize graph.db so remember() uses the graph backend
         memcp_graph_stats()
 
         r1 = json.loads(
-            memcp_remember(
+            await memcp_remember(
                 content="SQLite is used for the graph backend",
                 category="decision",
                 tags="architecture",
             )
         )
-        memcp_remember(
+        await memcp_remember(
             content="SQLite was chosen because it is zero-config",
             category="fact",
             tags="architecture",
@@ -230,8 +232,8 @@ class TestProjectSessionTools:
         assert result["count"] == 0
         assert result["sessions"] == []
 
-    def test_projects_after_remember(self, isolated_data_dir: Path) -> None:
-        memcp_remember(content="Project listing test", category="fact", project="test-proj")
+    async def test_projects_after_remember(self, isolated_data_dir: Path) -> None:
+        await memcp_remember(content="Project listing test", category="fact", project="test-proj")
         result = json.loads(memcp_projects())
         assert result["status"] == "ok"
         assert result["count"] >= 1

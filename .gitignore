@@ -16,3 +16,4 @@ htmlcov/
 
 # Claude Code config (templates are deployed to ~/.claude/ by install.sh)
 .claude/
+alternatives/

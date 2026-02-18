@@ -27,6 +27,20 @@ def _reset_singletons() -> None:
     except ImportError:
         pass
 
+    try:
+        from memcp.core.search import invalidate_bm25_cache
+
+        invalidate_bm25_cache()
+    except ImportError:
+        pass
+
+    try:
+        from memcp.core import secrets
+
+        secrets._detector = None
+    except ImportError:
+        pass
+
 
 @pytest.fixture(autouse=True)
 def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
