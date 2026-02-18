@@ -42,7 +42,7 @@ chmod 600 ~/.memcp/graph.db
 
 - Does not execute arbitrary code from stored content
 - Does not expose network endpoints (MCP uses stdio transport)
-- Does not store credentials, tokens, or secrets
+- Does not store credentials, tokens, or secrets — **secret detection** scans content for API keys, tokens, and credentials before storage and blocks them (configurable via `MEMCP_SECRET_DETECTION`)
 - Does not modify files outside of `~/.memcp/` and the project directory
 - Does not require elevated privileges
 
@@ -50,6 +50,7 @@ chmod 600 ~/.memcp/graph.db
 
 | Version | Supported |
 |---------|-----------|
+| 0.2.x   | Yes       |
 | 0.1.x   | Yes       |
 
 ## Dependencies
