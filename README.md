@@ -82,6 +82,8 @@ graph TB
 - **MAGMA 4-graph** — insights connect via semantic, temporal, causal, and entity edges in SQLite
 - **Intent-aware recall** — "why did we choose X?" follows causal edges; "when was Y decided?" follows temporal edges
 - **Auto entity extraction** — regex-based (files, modules, URLs, CamelCase) + LLM-based via sub-agents
+- **Secret detection** — blocks accidental storage of API keys, tokens, and credentials (8 regex patterns)
+- **Semantic deduplication** — optional embedding-based similarity check prevents near-duplicate insights
 
 ### Context Management
 - **Context-as-variable** — large content stored on disk, Claude sees only metadata (type, size, token count)
@@ -90,6 +92,8 @@ graph TB
 
 ### Search
 - **5-tier search** — keyword (stdlib) → BM25 (bm25s) → fuzzy (rapidfuzz) → semantic (model2vec/fastembed) → hybrid fusion
+- **Persistent BM25 index** — corpus-hash-based cache avoids per-query index rebuilds
+- **HNSW vector index** — optional `usearch` backend for O(log N) approximate nearest neighbor search
 - **Graceful degradation** — always works with zero optional deps; each extra unlocks better search
 - **Token budgeting** — `max_tokens` parameter caps how much enters the context window
 
@@ -105,7 +109,7 @@ graph TB
 - **Multi-session** — tracks sessions with timestamps and insight counts
 
 ### Developer Experience
-- **341 tests** across 16 test files, CI on Python 3.10/3.11/3.12
+- **421 tests** across 19 test files (unit + integration + concurrency), CI on Python 3.10/3.11/3.12
 - **77 benchmarks** — token efficiency, context rot, window management, scale behavior
 - **Interactive installer** — step-by-step setup with `bash scripts/install.sh`
 - **Docker support** — single-command containerized deployment
@@ -437,16 +441,22 @@ For analyzing a large document across multiple chunks in parallel:
 ```
 memcp/
 ├── src/memcp/
-│   ├── server.py                # FastMCP server — 21 tool definitions
-│   ├── config.py                # Environment config (dataclass)
+│   ├── server.py                # FastMCP server — 21 tool definitions (async)
+│   ├── config.py                # Environment config (dataclass) + validation
 │   ├── core/
-│   │   ├── memory.py            # remember, recall, forget, status
-│   │   ├── graph.py             # MAGMA 4-graph (SQLite + auto-edges)
+│   │   ├── memory.py            # remember, recall, forget, status + semantic dedup
+│   │   ├── errors.py            # MemCPError hierarchy (5 exception types)
+│   │   ├── secrets.py           # Secret detection (8 regex patterns)
+│   │   ├── graph.py             # MAGMA 4-graph facade (delegates to components)
+│   │   ├── node_store.py        # SQLite connection, schema, node CRUD, entity index
+│   │   ├── edge_manager.py      # 4-type edge generation and queries
+│   │   ├── graph_traversal.py   # Query routing, intent detection, graph traversal
+│   │   ├── async_utils.py       # Thread pool executor for non-blocking I/O
 │   │   ├── context_store.py     # Named context variables on disk
 │   │   ├── chunker.py           # 6 splitting strategies
-│   │   ├── search.py            # Tiered: keyword → BM25 → semantic → hybrid
+│   │   ├── search.py            # Tiered: keyword → BM25 → semantic → hybrid + BM25 cache
 │   │   ├── embeddings.py        # Model2Vec / FastEmbed providers
-│   │   ├── vecstore.py          # Numpy vector store (cosine similarity)
+│   │   ├── vecstore.py          # Vector store (brute-force + optional HNSW via usearch)
 │   │   ├── embed_cache.py       # Disk cache for embeddings
 │   │   ├── retention.py         # 3-zone lifecycle (active → archive → purge)
 │   │   ├── project.py           # Git root detection + session management
@@ -493,7 +503,8 @@ memcp/
 │       ├── 009-user-level-global-deployment.md
 │       └── 010-twelve-factor-configuration.md
 ├── tests/
-│   ├── unit/                   # 16 test files, 341 unit tests
+│   ├── unit/                   # 18 test files, 391 unit tests
+│   ├── integration/            # 30 integration + concurrency stress tests
 │   └── benchmark/              # 77 benchmarks (token efficiency, context rot, scale)
 ├── benchmark_output/           # Generated benchmark reports
 │   ├── benchmark_report.md     # Human-readable comparison tables
@@ -526,6 +537,9 @@ All configuration is via environment variables (12-factor):
 | `MEMCP_RETENTION_PURGE_DAYS` | `180` | Days before purging archived items |
 | `MEMCP_EMBEDDING_PROVIDER` | `auto` | `model2vec`, `fastembed`, or `auto` |
 | `MEMCP_SEARCH_ALPHA` | `0.6` | Hybrid search blend (0=BM25 only, 1=semantic only) |
+| `MEMCP_SECRET_DETECTION` | `true` | Enable/disable secret detection on `remember()` |
+| `MEMCP_SEMANTIC_DEDUP` | `false` | Enable semantic deduplication (requires embeddings) |
+| `MEMCP_DEDUP_THRESHOLD` | `0.95` | Cosine similarity threshold for semantic dedup |
 
 ---
 
@@ -541,6 +555,8 @@ MemCP's tiered dependency system means core features work with zero extras:
 | `semantic-hq` | fastembed + numpy | Higher quality embeddings (384d) | ~200MB |
 | `cache` | diskcache | Persistent embedding cache | ~1MB |
 | `vectors` | sqlite-vec | SIMD-accelerated KNN in SQLite | ~2MB |
+| `hnsw` | usearch + numpy | HNSW approximate nearest neighbor (O(log N)) | ~5MB |
+| `async` | aiosqlite | Async SQLite (Phase 3 full async) | ~0.1MB |
 
 ```bash
 pip install memcp                          # Core (keyword search)
@@ -612,9 +628,12 @@ See [SECURITY.md](SECURITY.md) for:
 
 **Key security properties:**
 - All data stored locally (`~/.memcp/`) — nothing leaves your machine
+- **Secret detection** blocks accidental storage of API keys, tokens, private keys, and passwords (8 regex patterns; disable with `MEMCP_SECRET_DETECTION=false`)
 - Atomic file writes with `fcntl.flock` for concurrent access safety
 - Input validation via `safe_name()` prevents path traversal
-- SQLite WAL mode for ACID-compliant graph operations
+- Structured error hierarchy (`MemCPError`) with consistent error handling across all modules
+- Config validation catches invalid environment variables at startup
+- SQLite WAL mode + `busy_timeout=5000` for ACID-compliant concurrent operations
 - No network calls (unless using remote embedding providers)
 
 ---

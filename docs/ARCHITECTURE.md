@@ -46,18 +46,22 @@ When Claude calls `memcp_remember()`, the insight flows through:
 
 ```mermaid
 flowchart LR
-    A[memcp_remember] --> B[Validate + generate ID]
-    B --> C[Insert node in graph.db]
-    C --> D[Auto-generate edges]
+    A[memcp_remember] --> V[Validate + secret check]
+    V --> DD{Duplicate?}
+    DD -->|hash match| DUP[Return existing]
+    DD -->|no| C[Insert node in graph.db]
+    C --> EI[Update entity index]
+    EI --> D[Auto-generate edges]
     D --> D1[Temporal edges]
     D --> D2[Entity edges]
     D --> D3[Semantic edges]
     D --> D4[Causal edges]
+    D --> INV[Invalidate BM25 cache]
 ```
 
-1. `server.py:memcp_remember()` parses parameters
-2. `core/memory.py:remember()` validates, generates an 8-char ID, computes `token_count` and `effective_importance`
-3. `core/graph.py:GraphMemory.store()` inserts the node into SQLite and auto-generates 4 edge types:
+1. `server.py:memcp_remember()` parses parameters (async, runs in thread pool)
+2. `core/memory.py:remember()` validates category/importance/content, runs secret detection (blocks API keys, tokens, credentials), generates an 8-char ID, checks for exact-hash duplicates (+ optional semantic dedup), computes `token_count` and `effective_importance`
+3. `core/graph.py` facade delegates to `NodeStore.store()` (insert node + populate entity index) and `EdgeManager.generate_edges()` for 4 edge types:
    - **Temporal**: links to insights created within 30 minutes (same project)
    - **Entity**: links to insights sharing extracted entities (files, modules, URLs, CamelCase identifiers)
    - **Semantic**: links to top-3 most similar insights by keyword overlap (or cosine similarity if embeddings installed)
@@ -186,11 +190,15 @@ sequenceDiagram
 ## 3-Layer Delegation Pattern
 
 ```
-server.py          # @mcp.tool() decorators — parameter parsing, JSON response
+server.py          # @mcp.tool() decorators — parameter parsing, JSON response (async via run_sync)
   ↓
 tools/*.py         # Tool logic — orchestrate core calls, format JSON output
   ↓
 core/*.py          # Business logic — returns plain dicts, no JSON serialization
+  core/errors.py     # MemCPError hierarchy (5 exception types)
+  core/secrets.py    # Secret detection (8 regex patterns)
+  core/graph.py      # Thin facade → node_store.py + edge_manager.py + graph_traversal.py
+  core/async_utils.py  # ThreadPoolExecutor for non-blocking I/O
 ```
 
 | Layer | Example | Responsibility |
@@ -275,6 +283,9 @@ All configuration is via environment variables (12-factor):
 | `MEMCP_EMBEDDING_PROVIDER` | `auto` | `model2vec`, `fastembed`, or `auto` |
 | `MEMCP_EMBEDDING_MODEL` | (default per provider) | Custom model name |
 | `MEMCP_SEARCH_ALPHA` | `0.6` | Hybrid search weight (0=BM25 only, 1=semantic only) |
+| `MEMCP_SECRET_DETECTION` | `true` | Enable/disable secret detection on `remember()` |
+| `MEMCP_SEMANTIC_DEDUP` | `false` | Enable semantic deduplication (requires embeddings) |
+| `MEMCP_DEDUP_THRESHOLD` | `0.95` | Cosine similarity threshold for semantic dedup |
 
 ## Technology Stack
 
@@ -284,8 +295,10 @@ All configuration is via environment variables (12-factor):
 | Storage | SQLite (graph) + Filesystem (contexts) | ACID graph + human-readable files |
 | Data dir | `~/.memcp/` | Global, persists across projects |
 | Config | Env vars via dataclass | 12-factor, works in local and Docker |
-| Safety | Atomic writes + flock + input validation | Crash-safe, concurrent-safe |
-| Search | Tiered: keyword → BM25 → semantic → hybrid | Zero deps minimum, optional upgrades |
+| Safety | Atomic writes + flock + secret detection + input validation | Crash-safe, concurrent-safe, credential-safe |
+| Errors | MemCPError hierarchy (5 types) | Consistent error handling across all modules |
+| Async | ThreadPoolExecutor + busy_timeout=5000 | Non-blocking MCP tool calls |
+| Search | Tiered: keyword → BM25 (cached) → semantic (HNSW) → hybrid | Zero deps minimum, optional upgrades |
 
 Core deps: `mcp>=1.0.0`, `pydantic>=2.0.0` (2 packages).
 

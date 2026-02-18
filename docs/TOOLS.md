@@ -34,7 +34,7 @@ memcp_remember(
 ) → str
 ```
 
-Save an insight to persistent memory. Creates a graph node with auto-generated edges (semantic, temporal, causal, entity).
+Save an insight to persistent memory. Creates a graph node with auto-generated edges (semantic, temporal, causal, entity). This tool is async — it runs in a background thread to avoid blocking concurrent MCP calls.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -55,7 +55,8 @@ memcp_remember("API rate limit is 100/min", category="fact", tags="api,limits")
 ```
 
 **Tips:**
-- Duplicate content is detected and returns `status: "duplicate"` with the existing ID
+- **Secret detection**: Content is scanned for API keys, tokens, and credentials before storage. If a secret is detected, the tool returns `status: "error"` with a description. Patterns include AWS keys (`AKIA...`), OpenAI/Anthropic keys, GitHub tokens, Stripe keys, private key blocks, and password assignments. Disable with `MEMCP_SECRET_DETECTION=false`.
+- **Duplicate detection**: Exact-match duplicates (SHA-256 hash) return `status: "duplicate"` with the existing ID. Optional semantic deduplication (cosine similarity ≥ 0.95) is available when embeddings are configured — enable with `MEMCP_SEMANTIC_DEDUP=true`.
 - At the 10K insight limit, low-importance insights are auto-pruned
 - Use `importance="critical"` for rules that must never be forgotten
 
@@ -76,7 +77,7 @@ memcp_recall(
 ) → str
 ```
 
-Retrieve insights from memory with intent-aware graph traversal.
+Retrieve insights from memory with intent-aware graph traversal. This tool is async — it runs in a background thread to avoid blocking concurrent MCP calls.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -331,7 +332,7 @@ memcp_search(
 ) → str
 ```
 
-Search across memory insights and context chunks. Auto-selects the best available search method.
+Search across memory insights and context chunks. Auto-selects the best available search method. This tool is async — it runs in a background thread to avoid blocking concurrent MCP calls.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -352,7 +353,8 @@ memcp_search("error handling", source="contexts")
 **Tips:**
 - Response includes `method` field showing which search tier was used
 - Response includes `capabilities` showing which tiers are available
-- Install `pip install memcp[search]` for BM25, `[semantic]` for embeddings
+- BM25 index is cached in memory and invalidated automatically when insights change — no per-query rebuild
+- Install `pip install memcp[search]` for BM25, `[semantic]` for embeddings, `[hnsw]` for HNSW vector index
 
 ---
 
