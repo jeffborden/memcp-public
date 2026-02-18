@@ -316,26 +316,50 @@ def semantic_search(
     return results
 
 
+def _rrf_fuse(
+    *ranked_lists: list[dict[str, Any]],
+    k: int = 60,
+) -> list[tuple[float, dict[str, Any]]]:
+    """Reciprocal Rank Fusion across multiple ranked result lists.
+
+    RRF formula: score(d) = sum(1 / (k + rank_i(d))) for each list.
+    k=60 is the standard constant from the original RRF paper.
+    """
+    scores: dict[str, float] = {}
+    docs: dict[str, dict[str, Any]] = {}
+
+    for ranked in ranked_lists:
+        for rank, doc in enumerate(ranked):
+            doc_id = doc.get("id", "") or doc.get("content", "")[:50]
+            scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank + 1)
+            if doc_id not in docs:
+                docs[doc_id] = doc
+
+    fused = [(score, docs[doc_id]) for doc_id, score in scores.items()]
+    fused.sort(key=lambda x: -x[0])
+    return fused
+
+
 def hybrid_search(
     query: str,
     documents: list[dict[str, Any]],
     limit: int = 10,
     max_tokens: int = 0,
     alpha: float = 0.0,
+    fusion: str = "rrf",
 ) -> list[dict[str, Any]]:
-    """Hybrid search — fuses BM25 scores with semantic similarity.
+    """Hybrid search — fuses BM25 + semantic using RRF (default) or weighted alpha.
 
-    alpha controls the blend: 0.0 = use env default, 1.0 = pure semantic.
-    Default alpha from MEMCP_SEARCH_ALPHA env var (default: 0.6).
+    fusion="rrf": Reciprocal Rank Fusion (better for combining diverse signals).
+    fusion="alpha": Weighted alpha blend (legacy behavior).
 
-    Final score = alpha * semantic_score + (1 - alpha) * bm25_score_normalized
+    For alpha mode:
+      alpha controls the blend: 0.0 = use env default, 1.0 = pure semantic.
+      Default alpha from MEMCP_SEARCH_ALPHA env var (default: 0.6).
     """
     import os
 
     from memcp.core.embeddings import get_provider
-
-    if alpha == 0.0:
-        alpha = float(os.getenv("MEMCP_SEARCH_ALPHA", "0.6"))
 
     provider = get_provider()
     if provider is None or not NUMPY_AVAILABLE:
@@ -344,39 +368,45 @@ def hybrid_search(
     if not documents:
         return []
 
-    # Get BM25 results (full list for scoring)
+    # Get ranked lists from each source
     bm25_results = bm25_search(query, documents, limit=len(documents), max_tokens=0)
-    bm25_scores: dict[str, float] = {}
-    max_bm25 = 0.0
-    for r in bm25_results:
-        key = f"{r.get('id', '')}:{r.get('content', '')[:50]}"
-        score = r.get("_score", 0.0)
-        bm25_scores[key] = score
-        max_bm25 = max(max_bm25, score)
-
-    # Get semantic results (full list for scoring)
     sem_results = semantic_search(query, documents, limit=len(documents), max_tokens=0)
-    sem_scores: dict[str, float] = {}
-    for r in sem_results:
-        key = f"{r.get('id', '')}:{r.get('content', '')[:50]}"
-        sem_scores[key] = r.get("_score", 0.0)
 
-    # Normalize BM25 scores to [0, 1]
-    if max_bm25 > 0:
-        bm25_scores = {k: v / max_bm25 for k, v in bm25_scores.items()}
+    if fusion == "rrf":
+        fused = _rrf_fuse(bm25_results, sem_results, k=get_config().rrf_k)
+        results = [{**doc, "_score": round(score, 6)} for score, doc in fused[:limit]]
+    else:
+        # Legacy weighted alpha fusion
+        if alpha == 0.0:
+            alpha = float(os.getenv("MEMCP_SEARCH_ALPHA", "0.6"))
 
-    # Fuse scores for all documents
-    fused: list[tuple[float, dict[str, Any]]] = []
-    for doc in documents:
-        key = f"{doc.get('id', '')}:{doc.get('content', '')[:50]}"
-        s_bm25 = bm25_scores.get(key, 0.0)
-        s_sem = sem_scores.get(key, 0.0)
-        fused_score = alpha * s_sem + (1 - alpha) * s_bm25
-        if fused_score > 0:
-            fused.append((fused_score, {**doc, "_score": round(fused_score, 4)}))
+        bm25_scores: dict[str, float] = {}
+        max_bm25 = 0.0
+        for r in bm25_results:
+            key = f"{r.get('id', '')}:{r.get('content', '')[:50]}"
+            score = r.get("_score", 0.0)
+            bm25_scores[key] = score
+            max_bm25 = max(max_bm25, score)
 
-    fused.sort(key=lambda x: -x[0])
-    results = [doc for _, doc in fused[:limit]]
+        sem_scores: dict[str, float] = {}
+        for r in sem_results:
+            key = f"{r.get('id', '')}:{r.get('content', '')[:50]}"
+            sem_scores[key] = r.get("_score", 0.0)
+
+        if max_bm25 > 0:
+            bm25_scores = {k: v / max_bm25 for k, v in bm25_scores.items()}
+
+        fused_alpha: list[tuple[float, dict[str, Any]]] = []
+        for doc in documents:
+            key = f"{doc.get('id', '')}:{doc.get('content', '')[:50]}"
+            s_bm25 = bm25_scores.get(key, 0.0)
+            s_sem = sem_scores.get(key, 0.0)
+            fused_score = alpha * s_sem + (1 - alpha) * s_bm25
+            if fused_score > 0:
+                fused_alpha.append((fused_score, {**doc, "_score": round(fused_score, 4)}))
+
+        fused_alpha.sort(key=lambda x: -x[0])
+        results = [doc for _, doc in fused_alpha[:limit]]
 
     if max_tokens > 0:
         results = _apply_token_budget(results, max_tokens)
@@ -417,10 +447,12 @@ def search(
     elif method == "semantic":
         return semantic_search(query, documents, limit, max_tokens)
     elif method == "hybrid":
-        return hybrid_search(query, documents, limit, max_tokens)
+        return hybrid_search(query, documents, limit, max_tokens, fusion="rrf")
+    elif method == "hybrid-alpha":
+        return hybrid_search(query, documents, limit, max_tokens, fusion="alpha")
     elif method == "auto":
         if SEMANTIC_AVAILABLE and NUMPY_AVAILABLE and BM25_AVAILABLE:
-            return hybrid_search(query, documents, limit, max_tokens)
+            return hybrid_search(query, documents, limit, max_tokens, fusion="rrf")
         if BM25_AVAILABLE:
             return bm25_search(query, documents, limit, max_tokens)
         return keyword_search(query, documents, limit, max_tokens)
@@ -429,7 +461,7 @@ def search(
 
         raise ValidationError(
             f"Unknown search method {method!r}. "
-            "Must be: auto, keyword, bm25, fuzzy, semantic, hybrid"
+            "Must be: auto, keyword, bm25, fuzzy, semantic, hybrid, hybrid-alpha"
         )
 
 
