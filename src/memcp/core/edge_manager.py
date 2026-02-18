@@ -1,14 +1,17 @@
 """EdgeManager — auto-generate and query edges between nodes.
 
 Handles all 4 edge types: temporal, entity, semantic, causal.
+Hebbian co-retrieval strengthening and activation-based edge decay.
 Extracted from GraphMemory.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
+import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -225,6 +228,116 @@ class EdgeManager:
             conn.commit()
         except sqlite3.IntegrityError:
             pass
+
+    # ── Hebbian learning ─────────────────────────────────────────
+
+    def strengthen_co_retrieved(self, node_ids: list[str], boost: float = 0.05) -> int:
+        """Strengthen edges between co-retrieved nodes (Hebbian learning).
+
+        When nodes are recalled together, their shared edges get a weight boost.
+        Uses: weight = min(weight + boost, 1.0)
+        Also updates last_activated_at for decay tracking.
+        Returns count of edges strengthened.
+        """
+        conn = self._node_store._get_conn()
+        now = datetime.now(timezone.utc).isoformat()
+        strengthened = 0
+        for i, src in enumerate(node_ids):
+            for tgt in node_ids[i + 1 :]:
+                cursor = conn.execute(
+                    """UPDATE edges SET weight = MIN(weight + ?, 1.0),
+                       last_activated_at = ?
+                       WHERE (source_id = ? AND target_id = ?)
+                          OR (source_id = ? AND target_id = ?)""",
+                    (boost, now, src, tgt, tgt, src),
+                )
+                strengthened += cursor.rowcount
+        if strengthened:
+            conn.commit()
+        return strengthened
+
+    # ── Edge decay ────────────────────────────────────────────────
+
+    _last_decay_time: float = 0.0  # class-level rate limiter
+
+    def decay_stale_edges(self, half_life_days: int = 30, min_weight: float = 0.05) -> int:
+        """Decay edge weights based on time since last activation.
+
+        Uses exponential decay: weight_new = weight * 2^(-days / half_life)
+        Deletes edges that fall below min_weight.
+        Rate-limited to once per hour.
+        Returns count of edges pruned.
+        """
+        now_ts = time.time()
+        if now_ts - EdgeManager._last_decay_time < 3600:  # once per hour
+            return 0
+        EdgeManager._last_decay_time = now_ts
+
+        conn = self._node_store._get_conn()
+        now = datetime.now(timezone.utc)
+
+        rows = conn.execute(
+            "SELECT source_id, target_id, edge_type, weight, last_activated_at FROM edges"
+        ).fetchall()
+
+        pruned = 0
+        for row in rows:
+            activated_str = row["last_activated_at"]
+            if not activated_str:
+                continue  # edges without activation tracking are not decayed
+            try:
+                activated = datetime.fromisoformat(activated_str)
+                if activated.tzinfo is None:
+                    activated = activated.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                continue
+
+            days = (now - activated).total_seconds() / 86400
+            if days <= 0:
+                continue
+
+            decay_factor = math.pow(2, -days / half_life_days)
+            new_weight = row["weight"] * decay_factor
+
+            if new_weight < min_weight:
+                conn.execute(
+                    """DELETE FROM edges
+                       WHERE source_id = ? AND target_id = ? AND edge_type = ?""",
+                    (row["source_id"], row["target_id"], row["edge_type"]),
+                )
+                pruned += 1
+            else:
+                conn.execute(
+                    """UPDATE edges SET weight = ?
+                       WHERE source_id = ? AND target_id = ? AND edge_type = ?""",
+                    (new_weight, row["source_id"], row["target_id"], row["edge_type"]),
+                )
+
+        if pruned or rows:
+            conn.commit()
+        return pruned
+
+    # ── Feedback / reinforcement ─────────────────────────────────
+
+    def reinforce_edges(self, node_id: str, boost: float = 0.02) -> int:
+        """Boost (or weaken with negative boost) all edges connected to a node."""
+        conn = self._node_store._get_conn()
+        now = datetime.now(timezone.utc).isoformat()
+        if boost >= 0:
+            cursor = conn.execute(
+                """UPDATE edges SET weight = MIN(weight + ?, 1.0),
+                   last_activated_at = ?
+                   WHERE source_id = ? OR target_id = ?""",
+                (boost, now, node_id, node_id),
+            )
+        else:
+            cursor = conn.execute(
+                """UPDATE edges SET weight = MAX(weight + ?, 0.0)
+                   WHERE source_id = ? OR target_id = ?""",
+                (boost, node_id, node_id),
+            )
+        conn.commit()
+        return cursor.rowcount
 
     # ── Edge queries ──────────────────────────────────────────────
 
