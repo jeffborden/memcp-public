@@ -46,11 +46,11 @@ ask_choice() {
     local prompt="$1"
     shift
     local options=("$@")
-    echo -e "\n  ${CYAN}?${NC} ${prompt}"
+    echo -e "\n  ${CYAN}?${NC} ${prompt}" >&2
     for i in "${!options[@]}"; do
-        echo -e "    ${BOLD}$((i+1)))${NC} ${options[$i]}"
+        echo -e "    ${BOLD}$((i+1)))${NC} ${options[$i]}" >&2
     done
-    echo -en "  ${CYAN}→${NC} Enter choice [1-${#options[@]}]: "
+    echo -en "  ${CYAN}→${NC} Enter choice [1-${#options[@]}]: " >&2
     read -r choice
     echo "$choice"
 }
@@ -230,12 +230,14 @@ choose_extras() {
     echo -e "    ${BOLD}fuzzy${NC}        Typo-tolerant matching (rapidfuzz)      ${DIM}~2MB${NC}"
     echo -e "    ${BOLD}semantic${NC}     Vector embeddings (model2vec + numpy)   ${DIM}~40MB${NC}"
     echo -e "    ${BOLD}semantic-hq${NC}  High-quality embeddings (fastembed)     ${DIM}~200MB${NC}"
+    echo -e "    ${BOLD}hnsw${NC}         HNSW vector index (usearch + numpy)     ${DIM}~10MB${NC}"
+    echo -e "    ${BOLD}async${NC}        Async SQLite I/O (aiosqlite)            ${DIM}~1MB${NC}"
     echo -e "    ${BOLD}cache${NC}        Embedding disk cache (diskcache)        ${DIM}~1MB${NC}"
     echo ""
 
     local options=(
         "Core only        ${DIM}(keyword search, zero extra deps)${NC}"
-        "Recommended      ${DIM}(search + fuzzy + semantic + cache — best balance)${NC}"
+        "Recommended      ${DIM}(search + fuzzy + semantic + hnsw + async + cache — best balance)${NC}"
         "Everything       ${DIM}(all optional features)${NC}"
         "Custom           ${DIM}(choose individual extras)${NC}"
     )
@@ -245,10 +247,10 @@ choose_extras() {
 
     case "$choice" in
         1) EXTRAS="" ;;
-        2) EXTRAS="search,fuzzy,semantic,cache" ;;
+        2) EXTRAS="search,fuzzy,semantic,hnsw,async,cache" ;;
         3) EXTRAS="all" ;;
         4) choose_custom_extras ;;
-        *) EXTRAS="search,fuzzy,semantic,cache" ;;
+        *) EXTRAS="search,fuzzy,semantic,hnsw,async,cache" ;;
     esac
 
     if [[ -n "$EXTRAS" ]]; then
@@ -261,7 +263,7 @@ choose_extras() {
 choose_custom_extras() {
     EXTRAS=""
     echo ""
-    local extras_list=("search" "fuzzy" "semantic" "semantic-hq" "cache" "vectors")
+    local extras_list=("search" "fuzzy" "semantic" "semantic-hq" "hnsw" "async" "cache" "vectors")
     for extra in "${extras_list[@]}"; do
         if ask_yes_no "Install ${BOLD}${extra}${NC}?" "n"; then
             if [[ -n "$EXTRAS" ]]; then
