@@ -22,16 +22,20 @@ from memcp.core.edge_manager import _CAUSAL_PATTERNS, EdgeManager
 from memcp.core.graph_traversal import GraphTraversal
 from memcp.core.node_store import (
     _SCHEMA,
+    CombinedEntityExtractor,
     EntityExtractor,
     NodeStore,
     RegexEntityExtractor,
+    SpacyEntityExtractor,
 )
 
 # Re-export for backward compatibility
 __all__ = [
+    "CombinedEntityExtractor",
     "EntityExtractor",
     "GraphMemory",
     "RegexEntityExtractor",
+    "SpacyEntityExtractor",
     "_CAUSAL_PATTERNS",
     "_SCHEMA",
 ]
