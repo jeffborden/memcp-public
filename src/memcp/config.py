@@ -6,31 +6,65 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from memcp.core.errors import ValidationError
+
+
+def _parse_int_env(name: str, default: int) -> int:
+    """Parse an integer from an environment variable with a clear error."""
+    raw = os.getenv(name, "")
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValidationError(
+            f"Environment variable {name} must be an integer, got {raw!r}"
+        ) from None
+
 
 @dataclass
 class MemCPConfig:
     """Configuration loaded from environment variables with sensible defaults."""
 
     data_dir: Path = field(default_factory=lambda: Path(os.getenv("MEMCP_DATA_DIR", "~/.memcp")))
-    max_memory_mb: int = field(
-        default_factory=lambda: int(os.getenv("MEMCP_MAX_MEMORY_MB", "2048"))
-    )
-    max_insights: int = field(default_factory=lambda: int(os.getenv("MEMCP_MAX_INSIGHTS", "10000")))
+    max_memory_mb: int = field(default_factory=lambda: _parse_int_env("MEMCP_MAX_MEMORY_MB", 2048))
+    max_insights: int = field(default_factory=lambda: _parse_int_env("MEMCP_MAX_INSIGHTS", 10000))
     max_context_size_mb: int = field(
-        default_factory=lambda: int(os.getenv("MEMCP_MAX_CONTEXT_SIZE_MB", "10"))
+        default_factory=lambda: _parse_int_env("MEMCP_MAX_CONTEXT_SIZE_MB", 10)
     )
     importance_decay_days: int = field(
-        default_factory=lambda: int(os.getenv("MEMCP_IMPORTANCE_DECAY_DAYS", "30"))
+        default_factory=lambda: _parse_int_env("MEMCP_IMPORTANCE_DECAY_DAYS", 30)
     )
     retention_archive_days: int = field(
-        default_factory=lambda: int(os.getenv("MEMCP_RETENTION_ARCHIVE_DAYS", "30"))
+        default_factory=lambda: _parse_int_env("MEMCP_RETENTION_ARCHIVE_DAYS", 30)
     )
     retention_purge_days: int = field(
-        default_factory=lambda: int(os.getenv("MEMCP_RETENTION_PURGE_DAYS", "180"))
+        default_factory=lambda: _parse_int_env("MEMCP_RETENTION_PURGE_DAYS", 180)
     )
 
     def __post_init__(self) -> None:
         self.data_dir = self.data_dir.expanduser().resolve()
+        self._validate()
+
+    def _validate(self) -> None:
+        """Validate configuration values."""
+        if self.max_insights <= 0:
+            raise ValidationError(f"max_insights must be > 0, got {self.max_insights}")
+        if self.importance_decay_days < 0:
+            raise ValidationError(
+                f"importance_decay_days must be >= 0, got {self.importance_decay_days}"
+            )
+        if self.max_memory_mb <= 0:
+            raise ValidationError(f"max_memory_mb must be > 0, got {self.max_memory_mb}")
+        if self.max_context_size_mb <= 0:
+            raise ValidationError(
+                f"max_context_size_mb must be > 0, got {self.max_context_size_mb}"
+            )
+        if self.retention_purge_days < self.retention_archive_days:
+            raise ValidationError(
+                f"retention_purge_days ({self.retention_purge_days}) must be >= "
+                f"retention_archive_days ({self.retention_archive_days})"
+            )
 
     @property
     def memory_path(self) -> Path:

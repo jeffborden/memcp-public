@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from memcp.config import get_config
+from memcp.core.errors import ValidationError
 
 
 class TestMemCPConfig:
@@ -65,3 +66,92 @@ class TestMemCPConfig:
         config = get_config()
         assert "~" not in str(config.data_dir)
         assert config.data_dir.is_absolute()
+
+
+class TestConfigValidation:
+    def test_max_insights_zero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import memcp.config as cfg
+
+        cfg._config = None
+        monkeypatch.setenv("MEMCP_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("MEMCP_MAX_INSIGHTS", "0")
+        with pytest.raises(ValidationError, match="max_insights must be > 0"):
+            get_config()
+
+    def test_max_insights_negative(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import memcp.config as cfg
+
+        cfg._config = None
+        monkeypatch.setenv("MEMCP_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("MEMCP_MAX_INSIGHTS", "-5")
+        with pytest.raises(ValidationError, match="max_insights must be > 0"):
+            get_config()
+
+    def test_max_memory_mb_zero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import memcp.config as cfg
+
+        cfg._config = None
+        monkeypatch.setenv("MEMCP_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("MEMCP_MAX_MEMORY_MB", "0")
+        with pytest.raises(ValidationError, match="max_memory_mb must be > 0"):
+            get_config()
+
+    def test_max_context_size_mb_zero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import memcp.config as cfg
+
+        cfg._config = None
+        monkeypatch.setenv("MEMCP_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("MEMCP_MAX_CONTEXT_SIZE_MB", "0")
+        with pytest.raises(ValidationError, match="max_context_size_mb must be > 0"):
+            get_config()
+
+    def test_importance_decay_days_negative(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import memcp.config as cfg
+
+        cfg._config = None
+        monkeypatch.setenv("MEMCP_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("MEMCP_IMPORTANCE_DECAY_DAYS", "-1")
+        with pytest.raises(ValidationError, match="importance_decay_days must be >= 0"):
+            get_config()
+
+    def test_purge_less_than_archive(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import memcp.config as cfg
+
+        cfg._config = None
+        monkeypatch.setenv("MEMCP_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("MEMCP_RETENTION_ARCHIVE_DAYS", "90")
+        monkeypatch.setenv("MEMCP_RETENTION_PURGE_DAYS", "30")
+        with pytest.raises(
+            ValidationError, match="retention_purge_days.*must be >= retention_archive_days"
+        ):
+            get_config()
+
+    def test_non_numeric_env_var(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import memcp.config as cfg
+
+        cfg._config = None
+        monkeypatch.setenv("MEMCP_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("MEMCP_MAX_INSIGHTS", "not_a_number")
+        with pytest.raises(ValidationError, match="must be an integer"):
+            get_config()
+
+    def test_valid_edge_values(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import memcp.config as cfg
+
+        cfg._config = None
+        monkeypatch.setenv("MEMCP_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("MEMCP_MAX_INSIGHTS", "1")
+        monkeypatch.setenv("MEMCP_MAX_MEMORY_MB", "1")
+        monkeypatch.setenv("MEMCP_MAX_CONTEXT_SIZE_MB", "1")
+        monkeypatch.setenv("MEMCP_IMPORTANCE_DECAY_DAYS", "0")
+        monkeypatch.setenv("MEMCP_RETENTION_ARCHIVE_DAYS", "0")
+        monkeypatch.setenv("MEMCP_RETENTION_PURGE_DAYS", "0")
+        config = get_config()
+        assert config.max_insights == 1
+        assert config.importance_decay_days == 0
+        assert config.retention_archive_days == 0
+        assert config.retention_purge_days == 0

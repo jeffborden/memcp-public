@@ -74,6 +74,9 @@ class MemCPConfig:
 | `MEMCP_IMPORTANCE_DECAY_DAYS` | `30` | Half-life for importance decay |
 | `MEMCP_RETENTION_ARCHIVE_DAYS` | `30` | Days before archiving unused items |
 | `MEMCP_RETENTION_PURGE_DAYS` | `180` | Days before purging archived items |
+| `MEMCP_SECRET_DETECTION` | `true` | Enable secret scanning on `remember()` (set `false` to disable) |
+| `MEMCP_SEMANTIC_DEDUP` | `false` | Enable embedding-based semantic deduplication |
+| `MEMCP_DEDUP_THRESHOLD` | `0.95` | Cosine similarity threshold for semantic dedup (0.0–1.0) |
 
 ## Consequences
 
@@ -90,7 +93,7 @@ class MemCPConfig:
 
 - **No config file option**: Users who prefer `.memcprc` or `memcp.toml` must use env vars or wrapper scripts. This is intentional — config files add parsing code, file discovery logic, and merge-with-env-var precedence rules.
 - **Type conversion in lambdas**: `int(os.getenv(...))` will raise `ValueError` on malformed input with an unhelpful error message. Mitigated by simple types (all ints and paths).
-- **No validation**: No range checks on values. `MEMCP_MAX_INSIGHTS=-1` would be accepted. Kept simple since this is operator-facing config, not user input.
+- **Validation on init**: `__post_init__` calls `_validate()` which checks: `max_insights > 0`, `importance_decay_days >= 0`, `max_memory_mb > 0`, `max_context_size_mb > 0`, and `retention_purge_days >= retention_archive_days`. Invalid env var values (e.g., `MEMCP_MAX_INSIGHTS=abc`) raise `ValidationError` with a clear message via the `_parse_int_env()` helper.
 - **Singleton**: Global mutable state (the `_config` singleton). Makes testing harder — tests must reset the singleton. Mitigated by `conftest.py` fixtures that create isolated `MemCPConfig` instances with `tmp_path`.
 
 ## Alternatives Considered

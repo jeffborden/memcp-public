@@ -1,86 +1,301 @@
 {
-  "generated_at": "2026-02-11T00:09:45.579950+00:00",
+  "generated_at": "2026-02-18T10:37:46.165658+00:00",
   "scenarios": {
-    "Session Startup": [
+    "Context Rot: Single Compaction": [
       {
-        "scenario": "Session Startup",
-        "metric": "Reload 50 insights",
-        "native": 896,
-        "rlm": 167,
-        "unit": "tokens",
-        "savings_pct": 81.4,
-        "ratio": "5.4x"
-      },
-      {
-        "scenario": "Session Startup",
-        "metric": "Reload 200 insights",
-        "native": 3768,
-        "rlm": 433,
-        "unit": "tokens",
-        "savings_pct": 88.5,
-        "ratio": "8.7x"
-      },
-      {
-        "scenario": "Session Startup",
-        "metric": "Reload 500 insights",
-        "native": 9380,
-        "rlm": 462,
-        "unit": "tokens",
-        "savings_pct": 95.1,
-        "ratio": "20.3x"
+        "scenario": "Context Rot: Single Compaction",
+        "metric": "Knowledge retained after /compact",
+        "native": 5.0,
+        "rlm": 100.0,
+        "unit": "%",
+        "savings_pct": -1900.0,
+        "ratio": "0.1x"
       }
     ],
-    "Large Document Analysis": [
+    "Context Rot: Cascading Compactions (3x)": [
       {
-        "scenario": "Large Document Analysis",
-        "metric": "Analyse 5K-token doc",
-        "native": 5077,
-        "rlm": 231,
-        "unit": "tokens",
-        "savings_pct": 95.5,
-        "ratio": "22.0x"
+        "scenario": "Context Rot: Cascading Compactions (3x)",
+        "metric": "Knowledge retained after 3 compactions",
+        "native": 2.0,
+        "rlm": 100.0,
+        "unit": "%",
+        "savings_pct": -4900.0,
+        "ratio": "0.0x"
+      }
+    ],
+    "Context Rot: Cross-Session": [
+      {
+        "scenario": "Context Rot: Cross-Session",
+        "metric": "Session-1 knowledge from session-5",
+        "native": 0.0,
+        "rlm": 92.0,
+        "unit": "%",
+        "savings_pct": 0.0,
+        "ratio": "0.0x"
+      }
+    ],
+    "Context Rot: Importance Decay": [
+      {
+        "scenario": "Context Rot: Importance Decay",
+        "metric": "Critical insight retention at 60 days",
+        "native": 0.0,
+        "rlm": 100.0,
+        "unit": "%",
+        "savings_pct": 0.0,
+        "ratio": "0.0x"
+      }
+    ],
+    "Context Window: Progressive Fill": [
+      {
+        "scenario": "Context Window: Progressive Fill",
+        "metric": "Docs before first eviction",
+        "native": 10,
+        "rlm": 20.0,
+        "unit": "docs",
+        "savings_pct": -100.0,
+        "ratio": "0.5x"
       },
       {
-        "scenario": "Large Document Analysis",
-        "metric": "Analyse 20K-token doc",
-        "native": 20209,
-        "rlm": 231,
+        "scenario": "Context Window: Progressive Fill",
+        "metric": "Final utilisation after 20 docs",
+        "native": 95.0,
+        "rlm": 0.95,
+        "unit": "%",
+        "savings_pct": 99.0,
+        "ratio": "100.0x"
+      }
+    ],
+    "Context Window Capacity (32K)": [
+      {
+        "scenario": "Context Window Capacity (32K)",
+        "metric": "Documents manageable",
+        "native": 3.2,
+        "rlm": 50,
+        "unit": "docs",
+        "savings_pct": -1462.5,
+        "ratio": "0.1x"
+      }
+    ],
+    "Context Window Capacity (64K)": [
+      {
+        "scenario": "Context Window Capacity (64K)",
+        "metric": "Documents manageable",
+        "native": 6.4,
+        "rlm": 50,
+        "unit": "docs",
+        "savings_pct": -681.2,
+        "ratio": "0.1x"
+      }
+    ],
+    "Context Window Capacity (128K)": [
+      {
+        "scenario": "Context Window Capacity (128K)",
+        "metric": "Documents manageable",
+        "native": 12.8,
+        "rlm": 50,
+        "unit": "docs",
+        "savings_pct": -290.6,
+        "ratio": "0.3x"
+      }
+    ],
+    "Context Window Capacity (200K)": [
+      {
+        "scenario": "Context Window Capacity (200K)",
+        "metric": "Documents manageable",
+        "native": 20.0,
+        "rlm": 50,
+        "unit": "docs",
+        "savings_pct": -150.0,
+        "ratio": "0.4x"
+      }
+    ],
+    "Working Set: 10 Simultaneous Docs": [
+      {
+        "scenario": "Working Set: 10 Simultaneous Docs",
+        "metric": "Context window utilisation",
+        "native": 93.56,
+        "rlm": 1.0,
+        "unit": "%",
+        "savings_pct": 98.9,
+        "ratio": "93.6x"
+      }
+    ],
+    "Compaction Pressure": [
+      {
+        "scenario": "Compaction Pressure",
+        "metric": "Turns before first eviction",
+        "native": 0,
+        "rlm": 100.0,
+        "unit": "turns",
+        "savings_pct": 0.0,
+        "ratio": "0.0x"
+      }
+    ],
+    "Scale: Recall from 10": [
+      {
+        "scenario": "Scale: Recall from 10",
+        "metric": "Tokens to retrieve 10 insights",
+        "native": 186,
+        "rlm": 0,
+        "unit": "tokens",
+        "savings_pct": 100.0,
+        "ratio": "infx"
+      }
+    ],
+    "Scale: Recall from 100": [
+      {
+        "scenario": "Scale: Recall from 100",
+        "metric": "Tokens to retrieve 10 insights",
+        "native": 1802,
+        "rlm": 94,
+        "unit": "tokens",
+        "savings_pct": 94.8,
+        "ratio": "19.2x"
+      }
+    ],
+    "Scale: Recall from 500": [
+      {
+        "scenario": "Scale: Recall from 500",
+        "metric": "Tokens to retrieve 10 insights",
+        "native": 9063,
+        "rlm": 187,
+        "unit": "tokens",
+        "savings_pct": 97.9,
+        "ratio": "48.5x"
+      }
+    ],
+    "Scale: Recall from 1000": [
+      {
+        "scenario": "Scale: Recall from 1000",
+        "metric": "Tokens to retrieve 10 insights",
+        "native": 17996,
+        "rlm": 187,
+        "unit": "tokens",
+        "savings_pct": 99.0,
+        "ratio": "96.2x"
+      }
+    ],
+    "Scale: Recall from 5000": [
+      {
+        "scenario": "Scale: Recall from 5000",
+        "metric": "Tokens to retrieve 10 insights",
+        "native": 91705,
+        "rlm": 187,
+        "unit": "tokens",
+        "savings_pct": 99.8,
+        "ratio": "490.4x"
+      }
+    ],
+    "Scale: Overhead for 10 insights": [
+      {
+        "scenario": "Scale: Overhead for 10 insights",
+        "metric": "Tokens to keep knowledge available",
+        "native": 186,
+        "rlm": 13,
+        "unit": "tokens",
+        "savings_pct": 93.0,
+        "ratio": "14.3x"
+      }
+    ],
+    "Scale: Overhead for 100 insights": [
+      {
+        "scenario": "Scale: Overhead for 100 insights",
+        "metric": "Tokens to keep knowledge available",
+        "native": 1802,
+        "rlm": 13,
+        "unit": "tokens",
+        "savings_pct": 99.3,
+        "ratio": "138.6x"
+      }
+    ],
+    "Scale: Overhead for 500 insights": [
+      {
+        "scenario": "Scale: Overhead for 500 insights",
+        "metric": "Tokens to keep knowledge available",
+        "native": 9063,
+        "rlm": 13,
+        "unit": "tokens",
+        "savings_pct": 99.9,
+        "ratio": "697.2x"
+      }
+    ],
+    "Scale: Overhead for 1000 insights": [
+      {
+        "scenario": "Scale: Overhead for 1000 insights",
+        "metric": "Tokens to keep knowledge available",
+        "native": 17996,
+        "rlm": 14,
+        "unit": "tokens",
+        "savings_pct": 99.9,
+        "ratio": "1285.4x"
+      }
+    ],
+    "Scale: Overhead for 5000 insights": [
+      {
+        "scenario": "Scale: Overhead for 5000 insights",
+        "metric": "Tokens to keep knowledge available",
+        "native": 91705,
+        "rlm": 14,
+        "unit": "tokens",
+        "savings_pct": 100.0,
+        "ratio": "6550.4x"
+      }
+    ],
+    "Scale: Search across 10": [
+      {
+        "scenario": "Scale: Search across 10",
+        "metric": "Tokens to search and return top-10",
+        "native": 186,
+        "rlm": 83,
+        "unit": "tokens",
+        "savings_pct": 55.4,
+        "ratio": "2.2x"
+      }
+    ],
+    "Scale: Search across 100": [
+      {
+        "scenario": "Scale: Search across 100",
+        "metric": "Tokens to search and return top-10",
+        "native": 1802,
+        "rlm": 183,
+        "unit": "tokens",
+        "savings_pct": 89.8,
+        "ratio": "9.8x"
+      }
+    ],
+    "Scale: Search across 500": [
+      {
+        "scenario": "Scale: Search across 500",
+        "metric": "Tokens to search and return top-10",
+        "native": 9063,
+        "rlm": 193,
+        "unit": "tokens",
+        "savings_pct": 97.9,
+        "ratio": "47.0x"
+      }
+    ],
+    "Scale: Search across 1000": [
+      {
+        "scenario": "Scale: Search across 1000",
+        "metric": "Tokens to search and return top-10",
+        "native": 17996,
+        "rlm": 191,
         "unit": "tokens",
         "savings_pct": 98.9,
-        "ratio": "87.5x"
-      },
-      {
-        "scenario": "Large Document Analysis",
-        "metric": "Analyse 50K-token doc",
-        "native": 50460,
-        "rlm": 231,
-        "unit": "tokens",
-        "savings_pct": 99.5,
-        "ratio": "218.4x"
+        "ratio": "94.2x"
       }
     ],
-    "Cross-Reference Knowledge": [
+    "Scale: Search across 5000": [
       {
-        "scenario": "Cross-Reference Knowledge",
-        "metric": "Find auth decisions + causes",
-        "native": 1861,
-        "rlm": 172,
+        "scenario": "Scale: Search across 5000",
+        "metric": "Tokens to search and return top-10",
+        "native": 91705,
+        "rlm": 192,
         "unit": "tokens",
-        "savings_pct": 90.8,
-        "ratio": "10.8x"
-      }
-    ],
-    "Multi-turn Accumulation": [
-      {
-        "scenario": "Multi-turn Accumulation",
-        "metric": "30 turns, retrieve turn-5 finding",
-        "native": 548,
-        "rlm": 505,
-        "unit": "tokens",
-        "savings_pct": 7.8,
-        "ratio": "1.1x"
+        "savings_pct": 99.8,
+        "ratio": "477.6x"
       }
     ]
   },
-  "total_comparisons": 8
+  "total_comparisons": 27
 }

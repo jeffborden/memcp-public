@@ -10,18 +10,20 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from memcp.core.errors import ValidationError
+
 _SAFE_NAME_RE = re.compile(r"^[\w.\-]+$")
 
 
 def safe_name(name: str) -> str:
-    """Validate a name for use as a filename. Raises ValueError if invalid."""
+    """Validate a name for use as a filename. Raises ValidationError if invalid."""
     if not name or not _SAFE_NAME_RE.match(name):
-        raise ValueError(
+        raise ValidationError(
             f"Invalid name {name!r}: must match ^[\\w.\\-]+$"
             " (alphanumeric, dots, hyphens, underscores)"
         )
     if ".." in name:
-        raise ValueError(f"Invalid name {name!r}: path traversal not allowed")
+        raise ValidationError(f"Invalid name {name!r}: path traversal not allowed")
     return name
 
 

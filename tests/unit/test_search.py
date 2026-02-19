@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from memcp.core import chunker, context_store
+from memcp.core.errors import ValidationError
 from memcp.core.memory import remember
 from memcp.core.search import (
     NUMPY_AVAILABLE,
@@ -93,7 +94,7 @@ class TestSearch:
         assert len(results) == 1
 
     def test_invalid_method(self) -> None:
-        with pytest.raises(ValueError, match="Unknown search method"):
+        with pytest.raises(ValidationError, match="Unknown search method"):
             search("test", SAMPLE_DOCS, method="invalid")
 
 

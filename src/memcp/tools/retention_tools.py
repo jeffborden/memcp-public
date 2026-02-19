@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from memcp.core import retention
+from memcp.core.errors import MemCPError
 
 
 def do_retention_preview(archive_days: int = 0, purge_days: int = 0) -> str:
@@ -47,10 +48,10 @@ def do_restore(name: str, item_type: str = "auto") -> str:
             # Try context first, then insight
             try:
                 result = retention.restore_context(name)
-            except FileNotFoundError:
+            except (FileNotFoundError, MemCPError):
                 try:
                     result = retention.restore_insight(name)
-                except (ValueError, FileNotFoundError):
+                except (ValueError, FileNotFoundError, MemCPError):
                     return json.dumps(
                         {
                             "status": "not_found",
@@ -76,7 +77,7 @@ def do_restore(name: str, item_type: str = "auto") -> str:
             indent=2,
             default=str,
         )
-    except (FileNotFoundError, ValueError) as e:
+    except (FileNotFoundError, ValueError, MemCPError) as e:
         return json.dumps({"status": "not_found", "message": str(e)}, indent=2)
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)

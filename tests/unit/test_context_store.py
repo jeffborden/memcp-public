@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from memcp.core import context_store
+from memcp.core.errors import InsightNotFoundError, ValidationError
 
 
 class TestLoad:
@@ -42,19 +43,19 @@ class TestLoad:
         assert result.get("_duplicate") is True
 
     def test_invalid_name(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="Invalid name"):
+        with pytest.raises(ValidationError, match="Invalid name"):
             context_store.load("bad/name", content="test")
 
     def test_empty_content(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="Content cannot be empty"):
+        with pytest.raises(ValidationError, match="Content cannot be empty"):
             context_store.load("empty", content="   ")
 
     def test_no_content_or_file(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(ValueError, match="Either content or file_path"):
+        with pytest.raises(ValidationError, match="Either content or file_path"):
             context_store.load("nothing")
 
     def test_missing_file(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(InsightNotFoundError):
             context_store.load("missing", file_path="/nonexistent/file.txt")
 
     def test_overwrite_different_content(self, isolated_data_dir: Path) -> None:
@@ -85,7 +86,7 @@ class TestInspect:
         assert len(preview_lines) == 3
 
     def test_inspect_missing(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(InsightNotFoundError):
             context_store.inspect("nonexistent")
 
     def test_inspect_increments_access(self, isolated_data_dir: Path) -> None:
@@ -113,7 +114,7 @@ class TestGet:
         assert lines[2] == "Line 5"
 
     def test_get_missing(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(InsightNotFoundError):
             context_store.get("nonexistent")
 
 
@@ -179,5 +180,5 @@ class TestFilterContext:
         assert "cherry tart" in result["content"]
 
     def test_filter_missing(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(InsightNotFoundError):
             context_store.filter_context("nonexistent", pattern="test")

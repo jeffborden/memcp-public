@@ -14,7 +14,9 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
+from memcp import __version__
 from memcp.config import get_config
+from memcp.core.errors import ValidationError
 from memcp.core.fileutil import (
     atomic_write_json,
     content_hash,
@@ -63,7 +65,7 @@ def _ensure_graph_migrated() -> GraphMemory:
 def _default_memory() -> dict[str, Any]:
     """Default empty memory structure."""
     return {
-        "version": "0.1.0",
+        "version": __version__,
         "insights": [],
         "metadata": {"created_at": datetime.now(timezone.utc).isoformat()},
     }
@@ -168,11 +170,18 @@ def remember(
     Uses GraphMemory backend when available, falls back to JSON.
     """
     if category not in VALID_CATEGORIES:
-        raise ValueError(f"Invalid category {category!r}. Must be one of {VALID_CATEGORIES}")
+        raise ValidationError(f"Invalid category {category!r}. Must be one of {VALID_CATEGORIES}")
     if importance not in VALID_IMPORTANCES:
-        raise ValueError(f"Invalid importance {importance!r}. Must be one of {VALID_IMPORTANCES}")
+        raise ValidationError(
+            f"Invalid importance {importance!r}. Must be one of {VALID_IMPORTANCES}"
+        )
     if not content.strip():
-        raise ValueError("Content cannot be empty")
+        raise ValidationError("Content cannot be empty")
+
+    # Secret detection — block storage of credentials
+    from memcp.core.secrets import get_secret_detector
+
+    get_secret_detector().check(content)
 
     now = datetime.now(timezone.utc)
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
@@ -197,25 +206,73 @@ def remember(
         "created_at": now.isoformat(),
     }
 
-    # Try graph backend first
-    if _use_graph():
-        return _remember_graph(insight, content)
+    # Try graph backend first, fall back to JSON
+    if _use_graph():  # noqa: SIM108
+        result = _remember_graph(insight, content)
+    else:
+        result = _remember_json(insight, content)
 
-    # Fall back to JSON backend
-    return _remember_json(insight, content)
+    # Invalidate BM25 cache so next search rebuilds
+    from memcp.core.search import invalidate_bm25_cache
+
+    invalidate_bm25_cache()
+    return result
+
+
+def _try_semantic_dedup(content: str, graph: GraphMemory) -> dict[str, Any] | None:
+    """Check for semantic duplicates using embeddings. Returns dict if dup found, else None.
+
+    Only active when MEMCP_SEMANTIC_DEDUP=true and an embedding provider is available.
+    """
+    import os
+
+    if os.getenv("MEMCP_SEMANTIC_DEDUP", "false").lower() != "true":
+        return None
+
+    try:
+        from memcp.core.embeddings import get_provider
+        from memcp.core.vecstore import VectorStore
+
+        provider = get_provider()
+        if provider is None:
+            return None
+
+        config = get_config()
+        store = VectorStore(config.cache_dir / "insight_embeddings.npz")
+        store.load()
+
+        if store.count() == 0:
+            return None
+
+        vec = provider.embed(content)
+        threshold = float(os.getenv("MEMCP_DEDUP_THRESHOLD", "0.95"))
+        results = store.search(vec, top_k=1)
+        if results and results[0][1] >= threshold:
+            existing_node = graph.get_node(results[0][0])
+            if existing_node:
+                return {**existing_node, "_duplicate": True, "_similarity": results[0][1]}
+    except Exception:
+        pass
+
+    return None
 
 
 def _remember_graph(insight: dict[str, Any], content: str) -> dict[str, Any]:
     """Save insight via GraphMemory."""
     graph = _get_graph()
     try:
-        # Check for duplicate content
+        # Check for duplicate content (exact hash match)
         existing_hash = content_hash(content)
         conn = graph._get_conn()
         rows = conn.execute("SELECT * FROM nodes").fetchall()
         for row in rows:
             if content_hash(row["content"]) == existing_hash:
                 return {**graph._row_to_dict(row), "_duplicate": True}
+
+        # Optional: semantic deduplication via embeddings
+        dedup_result = _try_semantic_dedup(content, graph)
+        if dedup_result is not None:
+            return dedup_result
 
         # Store with auto-edge generation
         result = graph.store(insight)
@@ -298,9 +355,9 @@ def recall(
     Uses GraphMemory (intent-aware traversal) when available, JSON fallback.
     """
     if category and category not in VALID_CATEGORIES:
-        raise ValueError(f"Invalid category {category!r}")
+        raise ValidationError(f"Invalid category {category!r}")
     if importance and importance not in VALID_IMPORTANCES:
-        raise ValueError(f"Invalid importance {importance!r}")
+        raise ValidationError(f"Invalid importance {importance!r}")
 
     # Auto-populate project/session from active state
     if scope == "project" and not project:
@@ -465,19 +522,26 @@ def forget(insight_id: str) -> bool:
     if _use_graph():
         graph = _get_graph()
         try:
-            return graph.delete_node(insight_id)
+            removed = graph.delete_node(insight_id)
         finally:
             graph.close()
+    else:
+        # JSON fallback
+        memory = _load_memory()
+        original_count = len(memory["insights"])
+        memory["insights"] = [i for i in memory["insights"] if i.get("id") != insight_id]
 
-    # JSON fallback
-    memory = _load_memory()
-    original_count = len(memory["insights"])
-    memory["insights"] = [i for i in memory["insights"] if i.get("id") != insight_id]
+        if len(memory["insights"]) < original_count:
+            _save_memory(memory)
+            removed = True
+        else:
+            removed = False
 
-    if len(memory["insights"]) < original_count:
-        _save_memory(memory)
-        return True
-    return False
+    if removed:
+        from memcp.core.search import invalidate_bm25_cache
+
+        invalidate_bm25_cache()
+    return removed
 
 
 def memory_status(project: str = "", session: str = "") -> dict[str, Any]:

@@ -43,6 +43,7 @@ You can also force a specific method: `search(query, method="fuzzy")`.
 - **Deps**: `bm25s>=0.2.0` (brings numpy, scipy)
 - **Install**: `pip install memcp[search]`
 - **How it works**: Builds a sparse BM25 index over the corpus using `bm25s.BM25()`. Tokenization via `bm25s.tokenize()`. Retrieval returns scored document IDs.
+- **Persistent cache**: The BM25 index is cached in memory with a corpus-hash key. The cache is invalidated when insights are added or removed (`remember()` and `forget()` call `invalidate_bm25_cache()`), so the index is only rebuilt when the corpus changes — not on every query.
 - **Strengths**: TF-IDF weighting, handles term frequency and document length, 500x faster than `rank_bm25`
 - **Weaknesses**: Keyword-based — doesn't understand synonyms or paraphrases
 
@@ -59,6 +60,7 @@ You can also force a specific method: `search(query, method="fuzzy")`.
 - **Deps**: `model2vec>=0.4.0` + `numpy>=1.24.0` (or `fastembed>=0.5.0` + `numpy>=1.24.0`)
 - **Install**: `pip install memcp[semantic]` (model2vec) or `pip install memcp[semantic-hq]` (fastembed)
 - **How it works**: Embeds query and all documents into dense vectors, then computes cosine similarity. Results are cached via `embed_cache.py` (uses `diskcache` if installed).
+- **HNSW backend**: When `usearch>=2.0` is installed (`pip install memcp[hnsw]`), the vector store uses an HNSW (Hierarchical Navigable Small World) index for O(log N) approximate nearest neighbor search, replacing the default O(N*D) brute-force cosine scan. This scales to 100K+ vectors. Falls back to brute-force `VectorStore` when `usearch` is not installed.
 - **Providers**:
 
 | Provider | Model | Dimensions | Size | Speed |
@@ -156,6 +158,9 @@ pip install memcp[semantic-hq]
 
 # Embedding cache
 pip install memcp[cache]
+
+# HNSW vector index (O(log N) approximate nearest neighbor)
+pip install memcp[hnsw]
 
 # Everything
 pip install memcp[all]

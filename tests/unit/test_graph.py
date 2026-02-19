@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from memcp import __version__
+from memcp.core.errors import InsightNotFoundError
 from memcp.core.fileutil import content_hash, estimate_tokens
 from memcp.core.graph import (
     _CAUSAL_PATTERNS,
@@ -423,7 +425,7 @@ class TestGraphMemoryRelated:
         assert len(result["related"]) >= 1 or len(result["edges"]) >= 1
 
     def test_get_related_not_found(self) -> None:
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(InsightNotFoundError):
             self.graph.get_related("nonexistent")
 
     def test_get_related_filter_by_type(self) -> None:
@@ -604,7 +606,7 @@ class TestGraphMemoryMigration:
     def test_migrate_from_json(self) -> None:
         now = datetime.now(timezone.utc)
         memory = {
-            "version": "0.1.0",
+            "version": __version__,
             "insights": [
                 {
                     "id": "legacy-1",

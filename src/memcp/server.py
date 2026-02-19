@@ -13,6 +13,9 @@ import json
 
 from mcp.server.fastmcp import FastMCP
 
+from memcp import __version__
+from memcp.core.async_utils import run_sync
+from memcp.core.errors import MemCPError
 from memcp.core.memory import (
     forget,
     memory_status,
@@ -48,7 +51,7 @@ def memcp_ping() -> str:
         {
             "status": "ok",
             "server": "MemCP",
-            "version": "0.1.0",
+            "version": __version__,
             "memory": status,
         },
         indent=2,
@@ -57,7 +60,7 @@ def memcp_ping() -> str:
 
 
 @mcp.tool()
-def memcp_remember(
+async def memcp_remember(
     content: str,
     category: str = "general",
     importance: str = "medium",
@@ -83,15 +86,16 @@ def memcp_remember(
         session: Optional session ID
     """
     try:
-        result = remember(
-            content=content,
-            category=category,
-            importance=importance,
-            tags=tags,
-            summary=summary,
-            entities=entities,
-            project=project,
-            session=session,
+        result = await run_sync(
+            remember,
+            content,
+            category,
+            importance,
+            tags,
+            summary,
+            entities,
+            project,
+            session,
         )
 
         if result.get("_duplicate"):
@@ -121,12 +125,12 @@ def memcp_remember(
             )
 
         return json.dumps(response, indent=2, default=str)
-    except ValueError as e:
+    except (ValueError, MemCPError) as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
 
 @mcp.tool()
-def memcp_recall(
+async def memcp_recall(
     query: str = "",
     category: str = "",
     importance: str = "",
@@ -152,15 +156,16 @@ def memcp_recall(
         scope: "project" (default), "session" (current only), "all" (cross-project)
     """
     try:
-        results = recall(
-            query=query,
-            category=category,
-            importance=importance,
-            limit=limit,
-            max_tokens=max_tokens,
-            project=project,
-            session=session,
-            scope=scope,
+        results = await run_sync(
+            recall,
+            query,
+            category,
+            importance,
+            limit,
+            max_tokens,
+            project,
+            session,
+            scope,
         )
 
         if not results:
@@ -202,7 +207,7 @@ def memcp_recall(
             indent=2,
             default=str,
         )
-    except ValueError as e:
+    except (ValueError, MemCPError) as e:
         return json.dumps({"status": "error", "message": str(e)}, indent=2)
 
 
@@ -364,7 +369,7 @@ def memcp_clear_context(name: str) -> str:
 
 
 @mcp.tool()
-def memcp_search(
+async def memcp_search(
     query: str,
     limit: int = 10,
     source: str = "all",
@@ -385,13 +390,14 @@ def memcp_search(
         project: Filter by project
         scope: "project" (default), "session", "all"
     """
-    return do_search(
-        query=query,
-        limit=limit,
-        source=source,
-        max_tokens=max_tokens,
-        project=project,
-        scope=scope,
+    return await run_sync(
+        do_search,
+        query,
+        limit,
+        source,
+        max_tokens,
+        project,
+        scope,
     )
 
 

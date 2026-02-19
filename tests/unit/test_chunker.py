@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from memcp.core import chunker, context_store
+from memcp.core.errors import InsightNotFoundError, ValidationError
 
 
 class TestByLines:
@@ -134,12 +135,12 @@ class TestChunkContext:
         assert result["count"] >= 2
 
     def test_chunk_missing_context(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises(InsightNotFoundError):
             chunker.chunk_context("nonexistent")
 
     def test_invalid_strategy(self, isolated_data_dir: Path) -> None:
         context_store.load("ctx", content="test")
-        with pytest.raises(ValueError, match="Unknown strategy"):
+        with pytest.raises(ValidationError, match="Unknown strategy"):
             chunker.chunk_context("ctx", strategy="invalid")
 
 
@@ -168,9 +169,9 @@ class TestPeekChunk:
         context_store.load("short-ctx", content=content)
         chunker.chunk_context("short-ctx", strategy="lines", chunk_size=10)
 
-        with pytest.raises(ValueError, match="out of range"):
+        with pytest.raises(ValidationError, match="out of range"):
             chunker.peek_chunk("short-ctx", chunk_index=99)
 
     def test_peek_no_chunks(self, isolated_data_dir: Path) -> None:
-        with pytest.raises(FileNotFoundError, match="No chunks found"):
+        with pytest.raises(InsightNotFoundError, match="No chunks found"):
             chunker.peek_chunk("no-chunks", chunk_index=0)

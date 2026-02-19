@@ -15,7 +15,18 @@ graph LR
     end
 ```
 
-All four edge types share the same node set (insights) and are stored in a single SQLite database (`~/.memcp/graph.db`) with WAL mode for concurrent reads.
+All four edge types share the same node set (insights) and are stored in a single SQLite database (`~/.memcp/graph.db`) with WAL mode for concurrent reads and `busy_timeout=5000` for lock contention handling.
+
+### Component Structure
+
+The graph implementation is split into focused modules:
+
+| Module | Class | Responsibility |
+|--------|-------|----------------|
+| `core/graph.py` | `GraphMemory` | Thin facade — delegates to components below |
+| `core/node_store.py` | `NodeStore` | SQLite connection, schema, node CRUD, entity index |
+| `core/edge_manager.py` | `EdgeManager` | All 4 edge generators, edge queries |
+| `core/graph_traversal.py` | `GraphTraversal` | Query routing, intent detection, ranking, BFS traversal |
 
 ## SQLite Schema
 
@@ -52,7 +63,18 @@ CREATE TABLE edges (
 );
 ```
 
-Indexes on `edges(source_id)`, `edges(target_id)`, `edges(edge_type)`, `nodes(project)`, `nodes(category)`, `nodes(importance)`.
+```sql
+-- Inverted entity index (O(1) entity edge lookup)
+CREATE TABLE entity_index (
+    entity TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    PRIMARY KEY (entity, node_id),
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_entity_index_entity ON entity_index(entity);
+```
+
+Indexes on `edges(source_id)`, `edges(target_id)`, `edges(edge_type)`, `nodes(project)`, `nodes(category)`, `nodes(importance)`, `entity_index(entity)`.
 
 ## Edge Types
 
@@ -93,7 +115,7 @@ If found, examines the 10 most recent insights in the same project. Computes tok
 
 Connect insights that mention the same entities.
 
-**Generation**: On insert, extracts entities from the content via `RegexEntityExtractor`, then finds all other nodes containing the same entities (case-insensitive match on the `entities` JSON array).
+**Generation**: On insert, extracts entities from the content via `RegexEntityExtractor`, populates the `entity_index` table, then uses the inverted index to find all other nodes sharing the same entities in O(matches) time (previously O(N*E) full table scan).
 
 **Entity extraction patterns** (`RegexEntityExtractor`):
 

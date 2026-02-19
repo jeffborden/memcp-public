@@ -18,6 +18,7 @@ import shutil
 from typing import Any
 
 from memcp.config import get_config
+from memcp.core.errors import InsightNotFoundError, ValidationError
 from memcp.core.fileutil import (
     atomic_write_json,
     atomic_write_text,
@@ -234,10 +235,10 @@ def chunk_context(
 
     meta = locked_read_json(meta_path)
     if meta is None:
-        raise FileNotFoundError(f"Context {name!r} not found")
+        raise InsightNotFoundError(f"Context {name!r} not found")
 
     if not content_path.exists():
-        raise FileNotFoundError(f"Context content for {name!r} missing")
+        raise InsightNotFoundError(f"Context content for {name!r} missing")
 
     content = content_path.read_text(encoding="utf-8")
     content_type = meta.get("type", "text")
@@ -258,12 +259,12 @@ def chunk_context(
         chunks = by_chars(content, size=sz, overlap=ov)
     elif strategy == "regex":
         if not pattern:
-            raise ValueError("Pattern required for regex strategy")
+            raise ValidationError("Pattern required for regex strategy")
         chunks = by_regex(content, pattern)
     elif strategy == "auto":
         chunks = auto(content, content_type)
     else:
-        raise ValueError(
+        raise ValidationError(
             f"Unknown strategy {strategy!r}. "
             "Must be: auto, lines, paragraphs, headings, chars, regex"
         )
@@ -325,16 +326,16 @@ def peek_chunk(
     index_path = chunks_dir / "index.json"
     index = locked_read_json(index_path)
     if index is None:
-        raise FileNotFoundError(
+        raise InsightNotFoundError(
             f"No chunks found for context {context_name!r}. Run memcp_chunk_context first."
         )
 
     if chunk_index < 0 or chunk_index >= index["count"]:
-        raise ValueError(f"Chunk index {chunk_index} out of range (0-{index['count'] - 1})")
+        raise ValidationError(f"Chunk index {chunk_index} out of range (0-{index['count'] - 1})")
 
     chunk_path = chunks_dir / f"{chunk_index:04d}.md"
     if not chunk_path.exists():
-        raise FileNotFoundError(f"Chunk file {chunk_index:04d}.md missing")
+        raise InsightNotFoundError(f"Chunk file {chunk_index:04d}.md missing")
 
     content = chunk_path.read_text(encoding="utf-8")
 
