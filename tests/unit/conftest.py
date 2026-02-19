@@ -41,6 +41,13 @@ def _reset_singletons() -> None:
     except ImportError:
         pass
 
+    try:
+        from memcp.core.edge_manager import EdgeManager
+
+        EdgeManager._last_decay_time = 0.0
+    except ImportError:
+        pass
+
 
 @pytest.fixture(autouse=True)
 def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:

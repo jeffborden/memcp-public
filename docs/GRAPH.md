@@ -25,7 +25,7 @@ The graph implementation is split into focused modules:
 |--------|-------|----------------|
 | `core/graph.py` | `GraphMemory` | Thin facade — delegates to components below |
 | `core/node_store.py` | `NodeStore` | SQLite connection, schema, node CRUD, entity index |
-| `core/edge_manager.py` | `EdgeManager` | All 4 edge generators, edge queries |
+| `core/edge_manager.py` | `EdgeManager` | All 4 edge generators, edge queries, Hebbian learning, edge decay |
 | `core/graph_traversal.py` | `GraphTraversal` | Query routing, intent detection, ranking, BFS traversal |
 
 ## SQLite Schema
@@ -45,6 +45,7 @@ CREATE TABLE nodes (
     session TEXT DEFAULT '',
     token_count INTEGER DEFAULT 0,
     access_count INTEGER DEFAULT 0,
+    feedback_score REAL DEFAULT 0.0, -- Reinforcement: [-1.0, 1.0]
     last_accessed_at TEXT,
     created_at TEXT NOT NULL
 );
@@ -57,6 +58,7 @@ CREATE TABLE edges (
     weight REAL DEFAULT 1.0,
     metadata TEXT DEFAULT '{}',      -- JSON object
     created_at TEXT NOT NULL,
+    last_activated_at TEXT,          -- Hebbian: updated on co-retrieval
     PRIMARY KEY (source_id, target_id, edge_type),
     FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
     FOREIGN KEY (target_id) REFERENCES nodes(id) ON DELETE CASCADE
@@ -115,9 +117,17 @@ If found, examines the 10 most recent insights in the same project. Computes tok
 
 Connect insights that mention the same entities.
 
-**Generation**: On insert, extracts entities from the content via `RegexEntityExtractor`, populates the `entity_index` table, then uses the inverted index to find all other nodes sharing the same entities in O(matches) time (previously O(N*E) full table scan).
+**Generation**: On insert, extracts entities from the content via the entity extraction pipeline, populates the `entity_index` table, then uses the inverted index to find all other nodes sharing the same entities in O(matches) time (previously O(N*E) full table scan).
 
-**Entity extraction patterns** (`RegexEntityExtractor`):
+**Entity extraction** uses a pluggable extractor chain:
+
+1. **`RegexEntityExtractor`** (always available) — fast pattern matching
+2. **`SpacyEntityExtractor`** (optional, `pip install memcp[ner]`) — spaCy NER using `en_core_web_sm` for natural language entities (people, organizations, concepts)
+3. **`CombinedEntityExtractor`** — merges results from both, deduplicates
+
+When spaCy is installed, the combined extractor is used automatically. Otherwise, regex-only.
+
+**Regex entity extraction patterns** (`RegexEntityExtractor`):
 
 | Type | Pattern | Examples |
 |------|---------|----------|
@@ -148,6 +158,7 @@ When `memcp_recall(query)` is called, the graph detects the query's intent and b
 
 ```
 total_score = keyword_score * 0.7 + edge_boost * 0.3
+total_score *= (1 + feedback_score * 0.3)  # Feedback reinforcement
 ```
 
 - **keyword_score**: `len(query_tokens & doc_tokens) / len(query_tokens)` — fraction of query tokens found in the document
@@ -158,6 +169,8 @@ edge_boost = min(1.0, primary_count / max(1, total_count) + 0.1 * primary_count)
 ```
 
 Where `primary_count` = edges of the intent-relevant type, `total_count` = all edges.
+
+- **feedback_score**: From `memcp_reinforce()` — ranges from -1.0 to 1.0. A fully helpful insight gets a 30% ranking boost; a fully misleading one gets a 30% penalty.
 
 ## Graph Traversal
 
@@ -179,16 +192,57 @@ Returns:
 }
 ```
 
+## Hebbian Co-Retrieval Strengthening
+
+When insights are recalled together, MemCP strengthens the edges between them — implementing Hebb's rule ("neurons that fire together wire together").
+
+**How it works**: After every `recall()` query, the top-10 result nodes have their shared edge weights boosted:
+
+```
+weight = min(weight + boost, 1.0)
+```
+
+- Default boost: `0.05` per co-retrieval (`MEMCP_HEBBIAN_BOOST`)
+- `last_activated_at` timestamp is updated for decay tracking
+- Controlled by `MEMCP_HEBBIAN_ENABLED` (default `true`)
+
+This creates a self-organizing graph: frequently co-recalled knowledge becomes more tightly connected.
+
+## Activation-Based Edge Decay
+
+Edges that haven't been activated in recall gradually lose weight, keeping the graph clean:
+
+```
+weight_new = weight * 2^(-days_since_activation / half_life)
+```
+
+- Default half-life: 30 days (`MEMCP_EDGE_DECAY_HALF_LIFE`)
+- Edges below `min_weight` (default 0.05, `MEMCP_EDGE_MIN_WEIGHT`) are pruned
+- Rate-limited to once per hour to avoid performance overhead
+- Called lazily during `query()` — no background scheduler needed
+
+## Memory Feedback
+
+The `memcp_reinforce` tool lets users mark insights as helpful or misleading:
+
+- `helpful=True`: `feedback_score += 0.1`, boost connected edges by 0.02
+- `helpful=False`: `feedback_score -= 0.2`, weaken connected edges by 0.05
+- Score clamped to `[-1.0, 1.0]`
+
+Feedback affects query ranking: `total_score *= (1 + feedback_score * 0.3)`.
+
 ## Migration from JSON
 
 When MemCP first encounters `graph.db` not existing but `memory.json` present, it can migrate via `GraphMemory.migrate_from_json(memory)`. This re-inserts all insights as nodes and auto-generates edges.
 
-## LLM Entity Extraction (Phase 4)
+## Entity Extraction Pipeline
 
 The `EntityExtractor` base class supports pluggable implementations:
 
-- **Phase 3** (current): `RegexEntityExtractor` — fast, pattern-based
-- **Phase 4** (sub-agents): `memcp-entity-extractor` sub-agent uses Claude's NLU to extract natural language entities ("the auth system", "Mohamed's preference") that regex misses
+- **Regex** (always available): `RegexEntityExtractor` — fast, pattern-based (files, modules, URLs, CamelCase)
+- **spaCy NER** (optional, `pip install memcp[ner]`): `SpacyEntityExtractor` — uses `en_core_web_sm` for natural language entities (people, organizations, technical concepts)
+- **Combined** (auto-selected when spaCy available): `CombinedEntityExtractor` — merges regex + spaCy results, deduplicates
+- **LLM-based** (sub-agents): `memcp-entity-extractor` sub-agent uses Claude's NLU for the richest extraction ("the auth system", "Mohamed's preference")
 
 The sub-agent outputs entities that are then fed back via `memcp_remember(entities="entity1,entity2,...")`, which triggers `GraphMemory.store()` to auto-generate entity edges.
 

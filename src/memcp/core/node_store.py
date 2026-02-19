@@ -54,6 +54,65 @@ class RegexEntityExtractor(EntityExtractor):
         return entities
 
 
+class SpacyEntityExtractor(EntityExtractor):
+    """Extract entities using spaCy NER — better quality than regex.
+
+    Requires: pip install spacy && python -m spacy download en_core_web_sm
+    Falls back to RegexEntityExtractor if spaCy or model not available.
+    """
+
+    MODEL = "en_core_web_sm"
+
+    def __init__(self) -> None:
+        import spacy  # noqa: F811
+
+        try:
+            self._nlp = spacy.load(self.MODEL)
+        except OSError:
+            raise ImportError(f"spaCy model {self.MODEL!r} not installed") from None
+
+    def extract(self, content: str) -> list[str]:
+        doc = self._nlp(content[:10000])  # cap for performance
+        entities: list[str] = []
+        seen: set[str] = set()
+        for ent in doc.ents:
+            key = ent.text.lower().strip()
+            if len(key) >= 3 and key not in seen:
+                seen.add(key)
+                entities.append(ent.text.strip())
+        return entities
+
+
+class CombinedEntityExtractor(EntityExtractor):
+    """Combine regex + spaCy extractors, deduplicating results."""
+
+    def __init__(self, regex: RegexEntityExtractor, spacy_ext: SpacyEntityExtractor) -> None:
+        self._regex = regex
+        self._spacy = spacy_ext
+
+    def extract(self, content: str) -> list[str]:
+        regex_entities = self._regex.extract(content)
+        spacy_entities = self._spacy.extract(content)
+        seen: set[str] = set()
+        combined: list[str] = []
+        for e in regex_entities + spacy_entities:
+            key = e.lower()
+            if key not in seen:
+                seen.add(key)
+                combined.append(e)
+        return combined
+
+
+def _get_best_extractor() -> EntityExtractor:
+    """Auto-select the best available entity extractor."""
+    regex = RegexEntityExtractor()
+    try:
+        spacy_ext = SpacyEntityExtractor()
+        return CombinedEntityExtractor(regex, spacy_ext)
+    except (ImportError, OSError):
+        return regex
+
+
 # ── SQLite Schema ─────────────────────────────────────────────────────
 
 _SCHEMA = """
@@ -115,7 +174,7 @@ class NodeStore:
             db_path = str(config.graph_db_path)
 
         self._db_path = db_path
-        self._extractor: EntityExtractor = RegexEntityExtractor()
+        self._extractor: EntityExtractor = _get_best_extractor()
         self._conn: sqlite3.Connection | None = None
 
     # ── Connection management ─────────────────────────────────────
@@ -128,7 +187,24 @@ class NodeStore:
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.execute("PRAGMA busy_timeout=5000")
             self._conn.executescript(_SCHEMA)
+            self._migrate_schema(self._conn)
         return self._conn
+
+    @staticmethod
+    def _migrate_schema(conn: sqlite3.Connection) -> None:
+        """Apply incremental schema migrations for Step 2 columns."""
+        # edges.last_activated_at — Hebbian learning / edge decay
+        try:
+            conn.execute("SELECT last_activated_at FROM edges LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE edges ADD COLUMN last_activated_at TEXT")
+            conn.commit()
+        # nodes.feedback_score — feedback/reinforce API
+        try:
+            conn.execute("SELECT feedback_score FROM nodes LIMIT 1")
+        except sqlite3.OperationalError:
+            conn.execute("ALTER TABLE nodes ADD COLUMN feedback_score REAL DEFAULT 0.0")
+            conn.commit()
 
     def close(self) -> None:
         if self._conn is not None:
@@ -216,6 +292,7 @@ class NodeStore:
             "summary",
             "entities",
             "tags",
+            "feedback_score",
         }
         filtered = {k: v for k, v in updates.items() if k in allowed}
         if not filtered:
