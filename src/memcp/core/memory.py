@@ -389,6 +389,57 @@ def recall(
     )
 
 
+def list_active(
+    project: str = "",
+    session: str = "",
+    scope: str = "project",
+    limit: int = 0,
+) -> list[dict[str, Any]]:
+    """Return active insights in scope WITHOUT mutating access metrics.
+
+    Unlike recall(), this does NOT bump access_count / last_accessed_at and does
+    NOT trigger Hebbian edge strengthening. It is the candidate-gathering path:
+    memcp_search must score the FULL active corpus (P3 — a recency-bounded
+    candidate window left ~96% of nodes unreachable), and touching every node's
+    access metadata on each search would be both semantically wrong and a
+    write-amplification hazard on a synced DB.
+
+    limit=0 means "all active nodes" (capped at config.max_insights).
+    """
+    if scope == "project" and not project:
+        project = get_current_project()
+    if scope == "session" and not session:
+        session = get_current_session()
+
+    cap = limit if limit > 0 else get_config().max_insights
+
+    if _use_graph():
+        graph = _get_graph()
+        try:
+            # use_edges=False skips Hebbian co-retrieval side effects; an empty
+            # query returns all active in-scope nodes (newest-first) up to cap.
+            return graph.query(
+                query="",
+                limit=cap,
+                project=project,
+                session=session,
+                scope=scope,
+                use_edges=False,
+            )
+        finally:
+            graph.close()
+
+    # JSON fallback: filter without bumping access metrics.
+    memory = _load_memory()
+    insights = list(memory["insights"])
+    if scope == "session" and session:
+        insights = [i for i in insights if i.get("session") == session]
+    elif scope == "project" and project:
+        insights = [i for i in insights if i.get("project") == project]
+    insights.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return insights[:cap]
+
+
 def _recall_graph(
     query: str = "",
     category: str = "",

@@ -485,18 +485,17 @@ def search_all(
         scope: "project", "session", "all"
         method: Search method
     """
-    from memcp.core.memory import recall
+    from memcp.core.memory import list_active
 
     results: list[dict[str, Any]] = []
 
     # Search memory insights
     if source in ("all", "memory"):
-        # Fetch candidate insights via recall (handles project/session scoping).
-        # Pass empty query so recall returns all candidates without its own
-        # keyword filtering; scoring is done below via search() instead.
-        insights = recall(
-            query="",
-            limit=limit * 5,  # over-fetch so search() has enough candidates to score
+        # Gather candidates over the FULL active corpus (not a recency-bounded
+        # limit*5 window — P3: that pre-slice left ~96% of nodes unreachable via
+        # search). list_active() is non-mutating (no access bump / no Hebbian);
+        # scoring + the real limit are applied below via search().
+        insights = list_active(
             project=project,
             scope=scope,
         )

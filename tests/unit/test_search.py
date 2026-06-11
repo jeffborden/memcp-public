@@ -144,6 +144,41 @@ class TestSearchAll:
         assert total_tokens <= 30 or result["count"] == 1
 
 
+class TestSearchFullCorpus:
+    """Item 1 / P3: memcp_search must score the full active corpus, not a
+    recency-bounded limit*5 candidate window (root cause of the May
+    'retention archive purge' noise-floor incident)."""
+
+    def test_search_finds_old_content(self, isolated_data_dir: Path) -> None:
+        # The only node containing the unique marker is saved FIRST → it is the
+        # OLDEST of a 100-node corpus, well outside the former 50-candidate
+        # (limit*5) recency window. It must still be returned.
+        remember("zygotebeacon unique marker insight", tags="marker")
+        for i in range(99):
+            remember(f"filler insight number {i} about generic topics", tags="filler")
+
+        result = search_all("zygotebeacon", source="memory", scope="all")
+        contents = [r.get("content", "") for r in result["results"]]
+        assert any("zygotebeacon" in c for c in contents), (
+            "oldest matching node not returned — candidate set is recency-bounded"
+        )
+
+    def test_search_candidate_set_not_recency_bounded(
+        self, isolated_data_dir: Path
+    ) -> None:
+        # Corpus > 5*limit (default limit=10 → former window = 50). The single
+        # match sits beyond that window (oldest of 61 nodes) and must surface.
+        remember("xenoglyph rare token beyond the former window", tags="rare")
+        for i in range(60):
+            remember(f"unrelated filler insight {i}", tags="filler")
+
+        result = search_all("xenoglyph", source="memory", scope="all", limit=10)
+        contents = [r.get("content", "") for r in result["results"]]
+        assert any("xenoglyph" in c for c in contents), (
+            "match beyond former limit*5 window not returned"
+        )
+
+
 def _make_fake_provider() -> MagicMock:
     """Create a mock embedding provider that returns deterministic vectors."""
     provider = MagicMock()
