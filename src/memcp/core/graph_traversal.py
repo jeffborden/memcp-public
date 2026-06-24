@@ -34,8 +34,15 @@ class GraphTraversal:
         project: str = "",
         session: str = "",
         scope: str = "project",
+        use_edges: bool = True,
     ) -> list[dict[str, Any]]:
-        """Query nodes with intent-aware graph traversal."""
+        """Query nodes with intent-aware graph traversal.
+
+        use_edges=False skips the Hebbian co-retrieval side effects (edge
+        strengthening + lazy decay), making the call non-mutating. This is the
+        candidate-gathering path used by search, which must not rewrite edge
+        weights on every query.
+        """
         conn = self._node_store._get_conn()
 
         conditions = []
@@ -71,7 +78,7 @@ class GraphTraversal:
             nodes = nodes[:limit]
 
         # Hebbian: strengthen edges between co-retrieved nodes
-        if len(nodes) >= 2:
+        if use_edges and len(nodes) >= 2:
             from memcp.config import get_config
 
             config = get_config()

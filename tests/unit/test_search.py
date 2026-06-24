@@ -163,9 +163,7 @@ class TestSearchFullCorpus:
             "oldest matching node not returned — candidate set is recency-bounded"
         )
 
-    def test_search_candidate_set_not_recency_bounded(
-        self, isolated_data_dir: Path
-    ) -> None:
+    def test_search_candidate_set_not_recency_bounded(self, isolated_data_dir: Path) -> None:
         # Corpus > 5*limit (default limit=10 → former window = 50). The single
         # match sits beyond that window (oldest of 61 nodes) and must surface.
         remember("xenoglyph rare token beyond the former window", tags="rare")
