@@ -40,6 +40,8 @@ BRIDGING = ("q09", "q10", "q12", "q14", "q18")
 
 
 def _bridging_query_strings() -> list[str]:
+    if not _QUERIES_JSON.exists():
+        pytest.skip("eval query fixture absent (excluded from the public repo)")
     queries = json.loads(_QUERIES_JSON.read_text())
     return [q["query"] for q in queries if q["id"] in BRIDGING]
 

@@ -594,7 +594,7 @@ All configuration is via environment variables (12-factor):
 | `MEMCP_EDGE_MIN_WEIGHT` | `0.05` | Minimum edge weight before pruning |
 | `MEMCP_RRF_K` | `60` | RRF fusion smoothing constant |
 | `MEMCP_CONSOLIDATION_THRESHOLD` | `0.85` | Similarity threshold for consolidation grouping |
-| `MEMCP_SEMANTIC_RECALL` | `false` | Blend a query↔node semantic term into recall to bridge abstract phrasings (insight `4154e880`). Off by default — the Phase 3 eval gate (Arm E) found the in-repo embeddings don't bridge on the eval corpus (`docs/eval/graph-ab-2026-06-10.md` § Arm E); a degraded embedder falls back to keyword-only. |
+| `MEMCP_SEMANTIC_RECALL` | `true` | Blend a query↔node semantic term into recall so abstract phrasings bridge to concrete nodes that share ~no keywords. On by default: the governing pre-registered flip gate passed all three criteria on the full embedding+theme stack (nDCG ON beats OFF, two-sided sign test p=0.0041; zero contamination delta; p50 < 75 ms). A degraded or uninstalled embedder falls back to keyword-only, so it's safe on even without the semantic extras. Set `false` to disable. |
 | `MEMCP_SEMANTIC_WEIGHT` | `0.5` | Semantic blend weight (0=keyword, 1=semantic); used only when `MEMCP_SEMANTIC_RECALL=true` |
 
 ---

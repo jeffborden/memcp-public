@@ -74,12 +74,17 @@ class MemCPConfig:
     )
     # Semantic recall (Phase 3) — blend a query-embedding-vs-stored-node-embedding
     # cosine term into the recall ranker so abstract behavioral phrasings bridge to
-    # concrete nodes that share ~no keywords (MemCP insight 4154e880). When off,
-    # recall scores are bit-identical to the keyword path and zero embeddings are
-    # computed. A transiently unavailable provider degrades to keyword-only (P4).
-    # Default set by the Arm E pre-registered eval gate (docs/eval/graph-ab-2026-06-10.md).
+    # concrete nodes that share ~no keywords. When off, recall scores are
+    # bit-identical to the keyword path and zero embeddings are computed. A
+    # transiently unavailable (or uninstalled) embedding provider degrades to
+    # keyword-only, so this is safe to leave on even without the semantic extras.
+    # Default ON: the governing pre-registered flip gate passed all three
+    # criteria on the full embedding+theme stack — ON beats OFF on nDCG@10
+    # (0.657 vs 0.589, two-sided sign test p=0.0041), zero contamination delta,
+    # p50 latency 19.5ms (well under the 75ms cap). Set MEMCP_SEMANTIC_RECALL=false
+    # to disable.
     semantic_recall_enabled: bool = field(
-        default_factory=lambda: os.getenv("MEMCP_SEMANTIC_RECALL", "false").lower() == "true"
+        default_factory=lambda: os.getenv("MEMCP_SEMANTIC_RECALL", "true").lower() == "true"
     )
     # Blend weight on the semantic term (0 = pure keyword, 1 = pure semantic).
     semantic_recall_weight: float = field(

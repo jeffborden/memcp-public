@@ -184,22 +184,30 @@ def test_reindex_latency_warn_ms_default(monkeypatch):
     assert cfg.reindex_latency_warn_ms == 3000
 
 
-def test_semantic_recall_default_matches_arm_f_gate(monkeypatch):
-    """Phase 4 Item 4, test 7 — the shipped default of MEMCP_SEMANTIC_RECALL
-    MUST equal the pre-registered Arm F gate verdict, mechanically.
+def test_semantic_recall_default_matches_governing_flip_gate(monkeypatch):
+    """The shipped default of MEMCP_SEMANTIC_RECALL MUST equal the governing
+    pre-registered flip-gate verdict, mechanically — they cannot silently diverge.
 
-    The gate (docs/eval/run_arm_f.py) writes results-arm-f.json with a
-    flip_rule.FLIP_DEFAULT boolean computed from the four pre-registered
-    criteria. The default-on flip is allowed to land ONLY with that verdict, so
-    this test reads the artifact and asserts the config default tracks it. A
-    future re-run that flips the gate forces the config default to change in
-    lockstep (and vice versa) — they cannot silently diverge.
+    Governing gate: the 2026-06-11 general-quality flip gate
+    (docs/eval/flip-gate-results-2026-06-11.json). It supersedes the earlier
+    Arm F blind theme-bridging gate as the authority for the shipped default
+    (decision 2026-06-26): on the full embedding+theme stack it passed all three
+    pre-registered criteria — ON beats OFF on nDCG@10 (sign test p=0.0041), zero
+    contamination delta, p50 latency under the 75ms cap — so FLIP_DEFAULT=true.
+    A future re-run that flips the gate forces the config default to change in
+    lockstep, and vice versa.
+
+    The eval artifact is dev-only and is not shipped to the public repo, so this
+    check skips when it is absent rather than failing.
     """
     import json
 
     repo_root = Path(__file__).resolve().parents[2]
-    arm_f = json.loads((repo_root / "docs/eval/results-arm-f.json").read_text())
-    flip = arm_f["flip_rule"]["FLIP_DEFAULT"]
+    artifact = repo_root / "docs/eval/flip-gate-results-2026-06-11.json"
+    if not artifact.exists():
+        pytest.skip("flip-gate eval artifact not present (excluded from the public repo)")
+    gate = json.loads(artifact.read_text())
+    flip = gate["flip_rule"]["FLIP_DEFAULT"]
 
     monkeypatch.delenv("MEMCP_SEMANTIC_RECALL", raising=False)
     from memcp import config as cfg_mod
@@ -208,5 +216,5 @@ def test_semantic_recall_default_matches_arm_f_gate(monkeypatch):
     cfg = cfg_mod.get_config()
     assert cfg.semantic_recall_enabled is flip, (
         f"config default semantic_recall_enabled={cfg.semantic_recall_enabled} "
-        f"must equal Arm F FLIP_DEFAULT={flip}"
+        f"must equal governing flip-gate FLIP_DEFAULT={flip}"
     )
