@@ -129,9 +129,7 @@ def test_floor_pass_deletion_emits_telemetry(
     s._write_json(s.snapshot_merged, {"hostA.local": 5, "hostB.local": 5})  # floor = 5
 
     events: list[tuple[str, str, dict]] = []
-    monkeypatch.setattr(
-        telemetry, "emit", lambda kind, name, **f: events.append((kind, name, f))
-    )
+    monkeypatch.setattr(telemetry, "emit", lambda kind, name, **f: events.append((kind, name, f)))
 
     s._gc_blobs(keep.name)
 
@@ -162,17 +160,14 @@ def test_below_floor_orphan_with_unique_row_not_deleted(
     s._write_json(s.snapshot_merged, {"hostA.local": 5, "hostB.local": 5})  # floor = 5
 
     events: list[tuple[str, str, dict]] = []
-    monkeypatch.setattr(
-        telemetry, "emit", lambda kind, name, **f: events.append((kind, name, f))
-    )
+    monkeypatch.setattr(telemetry, "emit", lambda kind, name, **f: events.append((kind, name, f)))
 
     s._gc_blobs(keep.name)
 
     assert orphan.exists(), (
-        "a below-floor blob with a row not in the pointer superset must NEVER be "
-        "silently unlinked"
+        "a below-floor blob with a row not in the pointer superset must NEVER be silently unlinked"
     )
     # The refusal is observable (not silent).
-    assert any(
-        f.get("pass") == "floor" and f.get("blob") == orphan.name for _k, _n, f in events
-    ), "refusal to reclaim must be surfaced via telemetry"
+    assert any(f.get("pass") == "floor" and f.get("blob") == orphan.name for _k, _n, f in events), (
+        "refusal to reclaim must be surfaced via telemetry"
+    )

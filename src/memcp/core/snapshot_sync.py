@@ -1026,9 +1026,7 @@ class SnapshotSync:
         finally:
             conn.close()
 
-    def _blob_content_covered(
-        self, blob: Path, ptr_sets: tuple[set[str], dict] | None
-    ) -> bool:
+    def _blob_content_covered(self, blob: Path, ptr_sets: tuple[set[str], dict] | None) -> bool:
         """True iff every node-id and tombstone-state in ``blob`` is already
         present in the pointer superset ``ptr_sets`` (as returned by
         ``_blob_id_sets``) — i.e. reclaiming ``blob`` cannot lose content.
@@ -1370,9 +1368,7 @@ class SnapshotSync:
         awaiting a push, seconds since the last successful push (None if never),
         and whether the background flusher thread is alive.
         """
-        last_push_age = (
-            round(time.monotonic() - self._last_push, 3) if self._last_push else None
-        )
+        last_push_age = round(time.monotonic() - self._last_push, 3) if self._last_push else None
         return {
             "sync_error_count": self._sync_error_count,
             "durable_dirty": self._durable_dirty,
@@ -1447,11 +1443,7 @@ class SnapshotSync:
             else self._read_json(self.snapshot_meta)
         )
         written_at = meta.get("written_at")
-        age = (
-            round(time.time() - written_at, 3)
-            if isinstance(written_at, (int, float))
-            else None
-        )
+        age = round(time.time() - written_at, 3) if isinstance(written_at, (int, float)) else None
         remote_hash = meta.get("content_hash")
         local_hash = self._projection_hash(self.local_db)
         delta = snap_rows - local_rows

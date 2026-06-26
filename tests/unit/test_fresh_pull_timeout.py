@@ -57,9 +57,7 @@ def _ids(path: Path) -> set[str]:
 # ── bounded fresh-machine pull ─────────────────────────────────────────
 
 
-def test_fresh_pull_times_out_and_defers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_fresh_pull_times_out_and_defers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A fresh machine whose pull stalls must NOT hang startup: _get_conn()
     returns within ~timeout with a usable (empty) DB and pull_pending set."""
     from memcp.core.node_store import NodeStore
@@ -96,9 +94,7 @@ def test_fresh_pull_times_out_and_defers(
         config_module._config = None
 
 
-def test_blocking_pull_bypasses_timeout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_blocking_pull_bypasses_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """MEMCP_SNAPSHOT_PULL_BLOCKING=true forces the legacy synchronous pull
     (the existing test pin) — the pull fully completes before _get_conn returns."""
     from memcp.core.node_store import NodeStore

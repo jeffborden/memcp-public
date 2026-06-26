@@ -138,6 +138,7 @@ class FastEmbedProvider(EmbeddingProvider):
 
 # ── Tier selection ─────────────────────────────────────────────────────
 
+
 def _fastembed_available() -> bool:
     """True if the fastembed library can be imported (no model load)."""
     return importlib.util.find_spec("fastembed") is not None

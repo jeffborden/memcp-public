@@ -118,9 +118,7 @@ class TestSelectTier:
         self._avail(monkeypatch, fastembed=False, model2vec=False)
         assert select_tier() == "keyword"
 
-    def test_keyword_tier_provider_none_logs_once_no_exception(
-        self, monkeypatch, caplog
-    ) -> None:
+    def test_keyword_tier_provider_none_logs_once_no_exception(self, monkeypatch, caplog) -> None:
         reset_provider()
         monkeypatch.delenv("MEMCP_EMBEDDING_PROVIDER", raising=False)
         monkeypatch.delenv("MEMCP_EMBEDDER_TIER", raising=False)
@@ -132,9 +130,7 @@ class TestSelectTier:
         logs = [r for r in caplog.records if r.name == "memcp.embeddings"]
         assert len(logs) == 1
 
-    def test_explicit_hq_degrades_gracefully_when_fastembed_absent(
-        self, monkeypatch
-    ) -> None:
+    def test_explicit_hq_degrades_gracefully_when_fastembed_absent(self, monkeypatch) -> None:
         # Explicitly asking for hq when fastembed isn't installed must not raise;
         # it degrades down the ladder to the next available tier.
         monkeypatch.setenv("MEMCP_EMBEDDER_TIER", "hq")

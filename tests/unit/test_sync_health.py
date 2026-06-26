@@ -94,8 +94,7 @@ def test_flusher_counts_consecutive_failures(
 
     assert s._sync_error_count == 3, "each failed tick must increment the counter"
     assert any(
-        r.levelno >= logging.ERROR and "consecutive" in r.getMessage()
-        for r in caplog.records
+        r.levelno >= logging.ERROR and "consecutive" in r.getMessage() for r in caplog.records
     ), "must escalate to error level at >=3 consecutive failures"
 
 

@@ -55,8 +55,7 @@ class ThemeCache:
     def get(self, node_id: str) -> dict | None:
         """Return the stored record for ``node_id`` (any sha), or None."""
         row = self._conn.execute(
-            "SELECT node_id, content_sha, themes, model, created_at "
-            "FROM themes WHERE node_id = ?",
+            "SELECT node_id, content_sha, themes, model, created_at FROM themes WHERE node_id = ?",
             (node_id,),
         ).fetchone()
         return dict(row) if row else None

@@ -84,8 +84,11 @@ class TestRegexAndCase:
     def test_case_sensitive_misses(self) -> None:
         remember("The TRIAGE pipeline", category="general", tags="kind:kb")
         results = grep("triage", ignore_case=False)
-        assert all("TRIAGE" not in m["snippet"] or "triage" in m["snippet"]
-                   for r in results for m in r["matches"])
+        assert all(
+            "TRIAGE" not in m["snippet"] or "triage" in m["snippet"]
+            for r in results
+            for m in r["matches"]
+        )
         # Lowercase 'triage' does not exist; case-sensitive search returns nothing here.
         assert results == []
 
@@ -168,9 +171,9 @@ class TestColumnFilters:
         assert [r["id"] for r in results] == [a]
 
     def test_importance_filter(self) -> None:
-        a = remember(
-            "impfilter token", category="general", importance="critical", tags="kind:kb"
-        )["id"]
+        a = remember("impfilter token", category="general", importance="critical", tags="kind:kb")[
+            "id"
+        ]
         remember("impfilter token", category="general", importance="low", tags="kind:kb")
         results = grep("impfilter", importance="critical")
         assert [r["id"] for r in results] == [a]
