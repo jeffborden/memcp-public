@@ -25,9 +25,17 @@
 
 ---
 
-## This is a fork
+## A personal fork of MemCP
 
-MemCP was created by [@maydali28](https://github.com/maydali28) — the original lives at **[maydali28/memcp](https://github.com/maydali28/memcp)** (MIT). This fork builds on that foundation and adds capabilities that came out of heavy day-to-day use. Everything upstream still works the same way; the additions below are additive.
+This is a personal fork of **[MemCP by Mohamed Ali May](https://github.com/maydali28/memcp)** (MIT). The hard part — the MAGMA knowledge graph, the RLM map-reduce design, the tiered search, the whole core — is his work, and it's genuinely good. Full credit to him. **If you're evaluating MemCP, start with [the upstream repo](https://github.com/maydali28/memcp);** it's the canonical project, and this fork is a superset I maintain for my own use.
+
+**Why a fork rather than a pull request?** I run MemCP every day, and a few needs specific to my setup had me iterating fast on my own copy — fast enough that I didn't want to push my opinions onto the upstream roadmap or make Mohamed review a steady stream of personal changes. So I kept them here instead:
+
+- I drive **one memory store from several machines**, so I needed no-loss multi-machine sync (snapshot sync + a write-lock).
+- At ~1,500 stored insights, exact "I know the ID / phrase / tag" lookups are faster and more reliable as plain grep than as semantic search — hence `memcp_grep`.
+- I wanted semantic recall ranking with theme bridging, episodic memory, and a few insight-lifecycle tools.
+
+None of this changes how upstream behaves — it's all additive, and the original tools work exactly as before. **These changes are available to upstream if Mohamed wants any of them** — happy to open PRs. The fork just lets me move at my own pace without asking him to adopt my preferences.
 
 **What this fork adds over upstream:**
 
@@ -695,12 +703,12 @@ See [SECURITY.md](SECURITY.md) for:
 
 ## Authors
 
-**This fork** ([jeffborden/memcp-public](https://github.com/jeffborden/memcp-public)):
-- **Jeff Borden** — fork additions: semantic recall + theme bridging, no-loss multi-machine sync, and the grep / index / lifecycle tools
-
-**Original MemCP** ([maydali28/memcp](https://github.com/maydali28/memcp)):
+**Original MemCP** ([maydali28/memcp](https://github.com/maydali28/memcp)) — the project this fork is built on:
 - **Mohamed Ali May** — Creator and maintainer
 - **Claude Opus 4.5** — (joint R&D)
+
+**This fork** ([jeffborden/memcp-public](https://github.com/jeffborden/memcp-public)):
+- **Jeff Borden** — fork additions: semantic recall + theme bridging, no-loss multi-machine sync, and the grep / index / lifecycle tools
 
 ---
 
