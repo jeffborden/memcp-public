@@ -23,6 +23,7 @@ source .venv/bin/activate
 
 ```bash
 make test                   # Unit tests
+make test-fast              # Unit tests, embeddings forced offline (~110s vs ~600s)
 make test-all               # Unit + benchmark tests
 make benchmark              # Benchmark suite only
 
@@ -32,6 +33,16 @@ pytest tests/unit/ -v -k "graph"             # Pattern match
 ```
 
 Tests use `tmp_path` fixtures for isolation — each test gets its own data directory. No global state is shared between tests.
+
+**Run tests offline.** The embedding model is cached locally; export these so the
+suite never reaches out to Hugging Face (cuts a full unit run from ~600s to ~110s):
+
+```bash
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+pytest tests/unit/ -q
+```
+
+`make test-fast` sets both for you.
 
 ### Linting
 

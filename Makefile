@@ -45,6 +45,10 @@ fmt: ## Auto-fix lint errors and format code
 test: ## Run unit tests
 	pytest tests/unit/ -v --tb=short
 
+.PHONY: test-fast
+test-fast: ## Run unit tests with embeddings forced offline (~110s vs ~600s)
+	HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 pytest tests/unit/ -q --tb=short
+
 .PHONY: test-all
 test-all: ## Run unit + benchmark tests
 	pytest tests/ -v --tb=short

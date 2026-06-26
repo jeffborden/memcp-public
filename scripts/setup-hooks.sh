@@ -98,17 +98,25 @@ do_install() {
         return 1
     fi
 
+    # Prefer the venv's Python (has memcp installed editable) over the
+    # system python3 (which is often too old or missing memcp).
+    # Callers can override via PYTHON_CMD env var.
+    if [[ -x "${PROJECT_DIR}/.venv/bin/python3" ]]; then
+        HOOK_PYTHON_CMD="${PROJECT_DIR}/.venv/bin/python3"
+    else
+        HOOK_PYTHON_CMD="${PYTHON_CMD:-python3}"
+    fi
+    export HOOK_PYTHON_CMD
+    export PROJECT_DIR
+
     if hooks_are_installed; then
         print_info "MemCP hooks are already installed in ~/.claude/settings.json"
-        if ! ask_yes_no "Reinstall (overwrite existing MemCP hooks)?" "n"; then
-            print_ok "Keeping existing hooks"
-            return 0
-        fi
-        # Remove existing hooks first, then re-add
-        _merge_remove
+        print_info "Checking for new hooks from template..."
+        # Always run the additive merge — _merge_install skips already-present hooks.
+        # If user wants a clean reinstall they can run `setup-hooks.sh remove` first.
     fi
 
-    if ! ask_yes_no "Merge auto-save hooks into ~/.claude/settings.json?" "y"; then
+    if ! ask_yes_no "Merge MemCP hooks into ~/.claude/settings.json?" "y"; then
         print_info "Skipping hooks — you can run this later with:"
         echo -e "    ${DIM}bash scripts/setup-hooks.sh install${NC}"
         return 0
@@ -125,6 +133,8 @@ import json, os
 
 settings_file = '$SETTINGS_FILE'
 template_file = '$TEMPLATE_FILE'
+project_dir = os.environ['PROJECT_DIR']
+hook_python = os.environ['HOOK_PYTHON_CMD']
 
 existing = {}
 if os.path.exists(settings_file):
@@ -137,6 +147,17 @@ if os.path.exists(settings_file):
 with open(template_file) as f:
     template = json.load(f)
 
+
+def rewrite_command(cmd):
+    # Rewrite the template's 'python3 hooks/foo.py' into an absolute
+    # invocation using the venv's Python and the repo's hook directory,
+    # so the hook works regardless of Claude Code's cwd.
+    parts = cmd.split(None, 1)
+    if len(parts) == 2 and parts[0] in ('python3', 'python') and parts[1].startswith('hooks/'):
+        return f'{hook_python} {project_dir}/{parts[1]}'
+    return cmd
+
+
 template_hooks = template.get('hooks', {})
 existing_hooks = existing.get('hooks', {})
 
@@ -145,15 +166,19 @@ for event_type, entries in template_hooks.items():
         existing_hooks[event_type] = []
     for new_entry in entries:
         new_matcher = new_entry.get('matcher', '')
-        new_commands = set()
-        for h in new_entry.get('hooks', []):
-            new_commands.add(h.get('command', ''))
+        # Rewrite commands to absolute paths before comparing / inserting.
+        new_entry = {
+            'matcher': new_matcher,
+            'hooks': [
+                {**h, 'command': rewrite_command(h.get('command', ''))}
+                for h in new_entry.get('hooks', [])
+            ],
+        }
+        new_commands = {h['command'] for h in new_entry['hooks']}
         already_exists = False
         for existing_entry in existing_hooks[event_type]:
             if existing_entry.get('matcher', '') == new_matcher:
-                existing_commands = set()
-                for h in existing_entry.get('hooks', []):
-                    existing_commands.add(h.get('command', ''))
+                existing_commands = {h.get('command', '') for h in existing_entry.get('hooks', [])}
                 if new_commands.issubset(existing_commands):
                     already_exists = True
                     break
@@ -209,7 +234,7 @@ with open(settings_file) as f:
     settings = json.load(f)
 
 hooks = settings.get('hooks', {})
-memcp_commands = {'pre_compact_save', 'auto_save_reminder', 'reset_counter', 'memcp'}
+memcp_commands = {'pre_compact_save', 'auto_save_reminder', 'reset_counter', 'session_start_reindex', 'memcp'}
 
 for event_type in list(hooks.keys()):
     filtered = []
@@ -270,7 +295,7 @@ with open('$SETTINGS_FILE') as f:
     settings = json.load(f)
 
 hooks = settings.get('hooks', {})
-memcp_commands = {'pre_compact_save', 'auto_save_reminder', 'reset_counter'}
+memcp_commands = {'pre_compact_save', 'auto_save_reminder', 'reset_counter', 'session_start_reindex'}
 
 for event_type, entries in hooks.items():
     for entry in entries:

@@ -1,5 +1,16 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 hooks/session_start_reindex.py"
+          }
+        ]
+      }
+    ],
     "PreCompact": [
       {
         "matcher": "",

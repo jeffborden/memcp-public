@@ -128,6 +128,18 @@ graph LR
 
 All four edge types share the same node set (insights) and are stored in a single SQLite `edges` table with an `edge_type` column. Edges are bidirectional for semantic/temporal/entity and directional for causal (cause → effect).
 
+## Rebuildable Derived Indexes
+
+MemCP's derived indexes (graph edges, entity index, embeddings cache) are rebuildable from the `nodes` table alone. A monotonic `meta.revision` counter in `graph.db` bumps on every content-mutating write (`remember`, `forget`, `_auto_prune_graph`, `consolidate`, retention archive/purge). Each index records the revision it was built against in the `index_meta` table (edges, entities) or in `cache/embeddings.meta.json` (embeddings, machine-local). A SessionStart hook detects staleness and rebuilds automatically.
+
+Cross-machine (desktop + laptop): the SQLite DB is shared via Google Drive and acts as the coordination primitive. When Machine A writes, the revision bumps. When Machine B's next session opens, `index_meta.built_against_revision < meta.revision`, so stale indexes rebuild locally. Embeddings are machine-local because the `.npz` binary shouldn't be synced; edges and entities live in the shared DB and benefit from any machine's rebuild.
+
+Manual invocation: `memcp_reindex(index="all"|"edges"|"entities"|"embeddings", mode="incremental"|"full", force=False)`.
+
+**Not rebuildable:** Hebbian edge weights, feedback scores, and destructive consolidation merges mutate state in ways that have no authoritative source to replay from. See ADR-014 and the DDIA event-log follow-up.
+
+**Unsupported:** concurrent memcp sessions on both machines writing simultaneously. GDrive's last-writer-wins on the SQLite file makes this unsafe today. Close one session before starting on the other.
+
 ## Auto-Save Hook Sequence
 
 ```mermaid

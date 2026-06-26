@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 import memcp.config as config_module
+
+
+def _clear_memcp_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strip every MEMCP_* var so a developer's shell config (e.g.
+    MEMCP_SNAPSHOT_IMMUTABLE=true, MEMCP_DATA_DIR=<real Drive path>) can never
+    leak into a test. Tests set what they need afterward. Matches clean CI."""
+    for key in list(os.environ):
+        if key.startswith("MEMCP_"):
+            monkeypatch.delenv(key, raising=False)
 
 
 def _reset_singletons() -> None:
@@ -46,8 +56,8 @@ def _reset_singletons() -> None:
 def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Give every test its own data directory."""
     data_dir = tmp_path / "memcp-integration"
+    _clear_memcp_env(monkeypatch)
     monkeypatch.setenv("MEMCP_DATA_DIR", str(data_dir))
-    monkeypatch.delenv("MEMCP_PROJECT", raising=False)
     monkeypatch.setenv("MEMCP_SECRET_DETECTION", "true")
 
     _reset_singletons()

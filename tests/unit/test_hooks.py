@@ -1,4 +1,5 @@
-"""Tests for MemCP hooks — pre_compact_save, auto_save_reminder, reset_counter."""
+"""Tests for MemCP hooks — pre_compact_save, auto_save_reminder, reset_counter,
+session_start_reindex."""
 
 from __future__ import annotations
 
@@ -9,6 +10,53 @@ import sys
 from pathlib import Path
 
 HOOKS_DIR = Path(__file__).parent.parent.parent / "hooks"
+
+
+class TestSessionStartReindex:
+    def test_hook_exits_zero_on_empty_data_dir(self, tmp_path: Path) -> None:
+        """Fresh data dir with no graph.db — hook runs, exits 0."""
+        env = {**os.environ, "MEMCP_DATA_DIR": str(tmp_path / "memcp")}
+        result = subprocess.run(
+            [sys.executable, str(HOOKS_DIR / "session_start_reindex.py")],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0
+
+    def test_hook_does_not_block_on_corrupt_db(self, tmp_path: Path) -> None:
+        """Corrupt graph.db — hook logs error but exits 0."""
+        data_dir = tmp_path / "memcp"
+        data_dir.mkdir()
+        (data_dir / "graph.db").write_bytes(b"not a sqlite db")
+
+        env = {**os.environ, "MEMCP_DATA_DIR": str(data_dir)}
+        result = subprocess.run(
+            [sys.executable, str(HOOKS_DIR / "session_start_reindex.py")],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+
+    def test_hook_respects_opt_out(self, tmp_path: Path) -> None:
+        """MEMCP_REINDEX_ON_SESSION_START=false skips work and exits 0."""
+        env = {
+            **os.environ,
+            "MEMCP_DATA_DIR": str(tmp_path / "memcp"),
+            "MEMCP_REINDEX_ON_SESSION_START": "false",
+        }
+        result = subprocess.run(
+            [sys.executable, str(HOOKS_DIR / "session_start_reindex.py")],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.returncode == 0
+        assert result.stderr == ""  # Nothing printed when opted out
 
 
 class TestPreCompactSave:

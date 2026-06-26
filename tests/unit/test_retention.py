@@ -499,3 +499,29 @@ class TestRetentionEdgeCases:
         assert len(archived) == 3
         archived_ids = {ins["id"] for ins in archived}
         assert archived_ids == set(ids)
+
+
+def test_purge_bumps_revision(isolated_data_dir):
+    from memcp.core import memory, retention
+    from memcp.core.graph import GraphMemory
+    from memcp.core.revision import get_revision
+
+    # Pre-create the graph DB so memory.remember() uses the graph backend
+    GraphMemory()._get_conn()  # trigger schema creation
+
+    result = memory.remember("Stale insight", category="general", importance="low")
+
+    graph = GraphMemory()
+    old_ts = "2020-01-01T00:00:00+00:00"
+    graph._get_conn().execute(
+        "UPDATE nodes SET created_at = ?, last_accessed_at = ? WHERE id = ?",
+        (old_ts, old_ts, result["id"]),
+    )
+    graph._get_conn().commit()
+
+    before = get_revision(graph._get_conn())
+    graph.close()
+
+    retention.retention_run(archive=True, purge=False)
+    after = get_revision(GraphMemory()._get_conn())
+    assert after > before

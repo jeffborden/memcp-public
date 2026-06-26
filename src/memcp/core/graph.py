@@ -91,6 +91,7 @@ class GraphMemory:
         project: str = "",
         session: str = "",
         scope: str = "project",
+        use_edges: bool = True,
     ) -> list[dict[str, Any]]:
         return self._traversal.query(
             query=query,
@@ -101,6 +102,7 @@ class GraphMemory:
             project=project,
             session=session,
             scope=scope,
+            use_edges=use_edges,
         )
 
     def get_related(

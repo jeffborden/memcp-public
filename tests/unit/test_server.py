@@ -7,12 +7,14 @@ from pathlib import Path
 
 from memcp import __version__
 from memcp.server import (
+    memcp_archive,
     memcp_chunk_context,
     memcp_clear_context,
     memcp_filter_context,
     memcp_forget,
     memcp_get_context,
     memcp_graph_stats,
+    memcp_grep,
     memcp_inspect_context,
     memcp_list_contexts,
     memcp_load_context,
@@ -28,6 +30,7 @@ from memcp.server import (
     memcp_search,
     memcp_sessions,
     memcp_status,
+    memcp_update,
 )
 
 
@@ -80,6 +83,72 @@ class TestRememberRecallForget:
 
     def test_forget_nonexistent(self) -> None:
         result = json.loads(memcp_forget("nonexistent-id"))
+        assert result["status"] == "not_found"
+
+    async def test_update_tags_and_importance(self, isolated_data_dir: Path) -> None:
+        created = json.loads(
+            await memcp_remember(
+                content="Update target insight",
+                category="finding",
+                importance="high",
+                tags="alpha,beta",
+            )
+        )
+        insight_id = created["id"]
+
+        result = json.loads(
+            memcp_update(
+                insight_id=insight_id,
+                tags="kind:kb,alpha,beta",
+                importance="medium",
+            )
+        )
+        assert result["status"] == "updated"
+        assert result["insight"]["importance"] == "medium"
+        assert "kind:kb" in result["insight"]["tags"]
+
+        recall_result = json.loads(await memcp_recall(query="Update target", scope="all"))
+        found = next((i for i in recall_result["insights"] if i["id"] == insight_id), None)
+        assert found is not None, "id must survive update"
+        assert found["importance"] == "medium"
+        assert "kind:kb" in found["tags"]
+
+    async def test_update_no_fields(self, isolated_data_dir: Path) -> None:
+        created = json.loads(await memcp_remember(content="No-op target", category="general"))
+        result = json.loads(memcp_update(insight_id=created["id"]))
+        assert result["status"] == "error"
+
+    async def test_update_invalid_importance(self, isolated_data_dir: Path) -> None:
+        created = json.loads(await memcp_remember(content="Bad importance", category="general"))
+        result = json.loads(memcp_update(insight_id=created["id"], importance="urgent"))
+        assert result["status"] == "error"
+
+    def test_update_nonexistent(self) -> None:
+        result = json.loads(memcp_update(insight_id="does-not-exist", tags="kind:kb"))
+        assert result["status"] == "not_found"
+
+    async def test_archive_round_trip(self, isolated_data_dir: Path) -> None:
+        created = json.loads(
+            await memcp_remember(
+                content="Archive target insight",
+                category="finding",
+                importance="high",
+                tags="kind:kb,test",
+            )
+        )
+        insight_id = created["id"]
+
+        archive_result = json.loads(memcp_archive(insight_id))
+        assert archive_result["status"] == "archived"
+        assert archive_result["id"] == insight_id
+        assert archive_result["archived_at"]
+
+        recall_result = json.loads(await memcp_recall(query="Archive target", scope="all"))
+        found = any(i["id"] == insight_id for i in recall_result.get("insights", []))
+        assert not found, "archived insight must not surface in default recall"
+
+    def test_archive_nonexistent(self) -> None:
+        result = json.loads(memcp_archive("does-not-exist"))
         assert result["status"] == "not_found"
 
 
@@ -240,3 +309,73 @@ class TestProjectSessionTools:
         assert result["count"] >= 1
         names = [p["name"] for p in result["projects"]]
         assert "test-proj" in names
+
+
+def test_memcp_reindex_tool_returns_ok_json(isolated_data_dir, monkeypatch):
+    from memcp.core.graph import GraphMemory
+
+    graph = GraphMemory()
+    graph._get_conn()
+
+    from memcp.core import memory
+
+    memory.remember("Reindex smoke test with GraphMemory", category="fact", importance="low")
+
+    import memcp.core.embeddings as emb
+
+    monkeypatch.setattr(emb, "get_provider", lambda: None)
+
+    import json
+
+    from memcp.tools.reindex_tools import do_reindex
+
+    raw = do_reindex(index="edges", mode="full", force=True)
+    payload = json.loads(raw)
+    assert payload["status"] == "ok"
+    assert payload["results"][0]["index"] == "edges"
+    assert payload["results"][0]["skipped"] is False
+
+
+def test_memcp_reindex_tool_rejects_bad_index(isolated_data_dir):
+    import json
+
+    from memcp.tools.reindex_tools import do_reindex
+
+    raw = do_reindex(index="not_an_index", mode="full", force=True)
+    payload = json.loads(raw)
+    assert payload["status"] == "error"
+    assert "Unknown index" in payload["message"]
+
+
+class TestMemcpGrep:
+    """Server-layer tests for the memcp_grep tool (JSON envelope + arg parsing)."""
+
+    async def test_known_item_literal(self, isolated_data_dir: Path) -> None:
+        await memcp_remember(
+            content="Triage V2 grep deep-dive scored 4.73/5.0",
+            category="finding",
+            importance="high",
+            tags="kind:kb,triage-agent",
+        )
+        result = json.loads(await memcp_grep(pattern="4.73", fixed_strings=True))
+        assert result["status"] == "ok"
+        assert result["count"] == 1
+        assert "4.73" in result["results"][0]["matches"][0]["snippet"]
+
+    async def test_tag_conjunction_via_csv(self, isolated_data_dir: Path) -> None:
+        await memcp_remember(content="both", category="general", tags="kind:kb,triage-agent")
+        await memcp_remember(content="one", category="general", tags="kind:kb")
+        result = json.loads(await memcp_grep(pattern=".", tags_all="kind:kb,triage-agent"))
+        assert result["count"] == 1
+
+    async def test_no_hits_returns_empty_ok(self, isolated_data_dir: Path) -> None:
+        await memcp_remember(content="anything", category="general", tags="kind:kb")
+        result = json.loads(await memcp_grep(pattern="zzz_nope_zzz"))
+        assert result["status"] == "ok"
+        assert result["count"] == 0
+        assert result["results"] == []
+
+    async def test_invalid_regex_is_structured_error(self, isolated_data_dir: Path) -> None:
+        result = json.loads(await memcp_grep(pattern="["))
+        assert result["status"] == "error"
+        assert "Invalid regex" in result["message"]

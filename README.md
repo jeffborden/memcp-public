@@ -39,7 +39,7 @@ Claude Code loses everything after `/compact`. Previous decisions, insights, tec
 | No way to connect related knowledge | MAGMA 4-graph links insights via semantic, temporal, causal, and entity edges |
 | Search is limited to current session | Tiered search (keyword → BM25 → semantic → hybrid) across all stored content |
 
-MemCP implements the **RLM framework** (Recursive Language Model, [arXiv:2512.24601](https://arxiv.org/abs/2512.24601)) — an active exploration model where content stays on disk and Claude decides what to load, rather than passive RAG retrieval.
+MemCP implements the **map-reduce pattern** from the RLM framework (Recursive Language Model, [arXiv:2512.24601](https://arxiv.org/abs/2512.24601)) — content stays on disk as named variables, Claude decides what to load, and a single-level fan-out of mapper sub-agents feeds a synthesizer. Single-level by design: see [ADR-006](docs/adr/006-mcp-tools-over-python-repl.md) for the choice to expose typed MCP tools instead of the paper's Python REPL (which is what enables paper-style recursive sub-calls).
 
 ---
 
@@ -555,7 +555,9 @@ All configuration is via environment variables (12-factor):
 | `MEMCP_IMPORTANCE_DECAY_DAYS` | `30` | Half-life for importance decay |
 | `MEMCP_RETENTION_ARCHIVE_DAYS` | `30` | Days before archiving stale items |
 | `MEMCP_RETENTION_PURGE_DAYS` | `180` | Days before purging archived items |
-| `MEMCP_EMBEDDING_PROVIDER` | `auto` | `model2vec`, `fastembed`, or `auto` |
+| `MEMCP_EMBEDDER_TIER` | `auto` | Embedder tier: `hq` (FastEmbed / bge-small-en-v1.5), `model2vec`, `keyword`, or `auto`. Auto prefers hq when `fastembed` is installed, else `model2vec`, else keyword-only. A *transiently* unavailable tier degrades to keyword for the call without a model_version flip (no re-embed storm); a genuine tier switch re-embeds once. |
+| `MEMCP_EMBEDDING_PROVIDER` | `auto` | Legacy override: `model2vec`, `fastembed`, or `auto`. When set to a concrete provider it bypasses the tier ladder (preserves pre-P4 behavior). |
+| `MEMCP_EMBEDDING_MODEL` | _(provider default)_ | Override the model name for the selected provider/tier. |
 | `MEMCP_SEARCH_ALPHA` | `0.6` | Hybrid search blend (0=BM25 only, 1=semantic only) |
 | `MEMCP_SECRET_DETECTION` | `true` | Enable/disable secret detection on `remember()` |
 | `MEMCP_SEMANTIC_DEDUP` | `false` | Enable semantic deduplication (requires embeddings) |
@@ -566,6 +568,8 @@ All configuration is via environment variables (12-factor):
 | `MEMCP_EDGE_MIN_WEIGHT` | `0.05` | Minimum edge weight before pruning |
 | `MEMCP_RRF_K` | `60` | RRF fusion smoothing constant |
 | `MEMCP_CONSOLIDATION_THRESHOLD` | `0.85` | Similarity threshold for consolidation grouping |
+| `MEMCP_SEMANTIC_RECALL` | `false` | Blend a query↔node semantic term into recall to bridge abstract phrasings (insight `4154e880`). Off by default — the Phase 3 eval gate (Arm E) found the in-repo embeddings don't bridge on the eval corpus (`docs/eval/graph-ab-2026-06-10.md` § Arm E); a degraded embedder falls back to keyword-only. |
+| `MEMCP_SEMANTIC_WEIGHT` | `0.5` | Semantic blend weight (0=keyword, 1=semantic); used only when `MEMCP_SEMANTIC_RECALL=true` |
 
 ---
 
@@ -682,7 +686,7 @@ See [SECURITY.md](SECURITY.md) for:
 
 MemCP builds on ideas from several research papers and projects:
 
-- **[RLM: Recursive Language Models](https://arxiv.org/abs/2512.24601)** (MIT, 2025) — The context-as-variable framework and recursive sub-query pattern that MemCP implements
+- **[RLM: Recursive Language Models](https://arxiv.org/abs/2512.24601)** (MIT, 2025) — The context-as-variable framework MemCP builds on. MemCP implements RLM's map-reduce pattern via typed MCP tools (per [ADR-006](docs/adr/006-mcp-tools-over-python-repl.md)) rather than the paper's Python-REPL recursion, so depth is limited to a single map-reduce level
 - **[MAGMA: Multi-Agent Graph Memory Architecture](https://arxiv.org/abs/2601.03236)** (2026) — The 4-graph memory model (semantic, temporal, causal, entity edges) adapted for MemCP's knowledge graph
 - **[FastMCP](https://github.com/jlowin/fastmcp)** — The Python MCP framework used for tool definitions
 - **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** — Anthropic's CLI that MemCP extends with persistent memory

@@ -265,7 +265,14 @@ def archive_insight(insight_id: str) -> dict[str, Any]:
 
         node["archived_at"] = datetime.now(timezone.utc).isoformat()
 
-        # Append to archive
+        # Synced: archive in-band via the archived_at column so the archived
+        # row stays in the synced substrate (no hard delete + un-synced side
+        # file, no propagating tombstone) and restore works cross-machine (§3.5).
+        if config.snapshot_dir:
+            graph.update_node(insight_id, {"archived_at": node["archived_at"]})
+            return node
+
+        # Local-only: legacy side-file + delete behavior.
         insights_path = config.archive_dir / "insights.json"
         archived = locked_read_json(insights_path) or []
         archived.append(node)
@@ -348,6 +355,27 @@ def restore_context(name: str) -> dict[str, Any]:
 def restore_insight(insight_id: str) -> dict[str, Any]:
     """Restore an archived insight back to active memory."""
     config = get_config()
+
+    # Synced: archive is in-band (archived_at), so restore just clears it and
+    # out-ranks any tombstone via resurrected_at so the union deny-set spares
+    # the row (§3.5, §3.10 restore).
+    if config.snapshot_dir and config.graph_db_path.exists():
+        from memcp.core.graph import GraphMemory
+        from memcp.core.node_store import resurrect_tombstone
+
+        graph = GraphMemory()
+        try:
+            node = graph.get_node(insight_id)
+            if node is None or node.get("archived_at") is None:
+                raise InsightNotFoundError(f"Archived insight {insight_id!r} not found")
+            graph.update_node(insight_id, {"archived_at": None})
+            conn = graph._get_conn()
+            resurrect_tombstone(conn, insight_id)
+            conn.commit()
+            node["archived_at"] = None
+            return node
+        finally:
+            graph.close()
 
     insights_path = config.archive_dir / "insights.json"
     archived = locked_read_json(insights_path) or []
@@ -556,6 +584,13 @@ def retention_run(
             except Exception:
                 pass
 
+    # Hard-purge permanently deletes rows with no synced tombstone, so a
+    # resurrected/stale machine could re-introduce a purged item forever.
+    # Disable it whenever cross-machine sync is on. See spec §3.10.
+    if purge and get_config().snapshot_dir:
+        purge = False
+        summary["purge_skipped_reason"] = "disabled while snapshot_dir is set (no-loss sync)"
+
     if purge:
         candidates = get_purge_candidates()
         for ctx in candidates["contexts"]:
@@ -573,4 +608,24 @@ def retention_run(
 
     summary["total_archived"] = summary["archived_contexts"] + summary["archived_insights"]
     summary["total_purged"] = summary["purged_contexts"] + summary["purged_insights"]
+
+    archived_count = summary["total_archived"]
+    purged_count = summary["total_purged"]
+    if archived_count > 0 or purged_count > 0:
+        config = get_config()
+        if config.graph_db_path.exists():
+            from memcp.core.graph import GraphMemory
+            from memcp.core.revision import bump_revision, invalidate_index
+
+            graph = GraphMemory()
+            try:
+                conn = graph._get_conn()
+                bump_revision(conn)
+                # Purge deletes nodes; surviving nodes' edges may drift.
+                if purged_count > 0:
+                    invalidate_index(conn, "edges")
+                conn.commit()
+            finally:
+                graph.close()
+
     return summary

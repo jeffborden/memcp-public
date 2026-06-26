@@ -125,6 +125,53 @@ def find_similar_groups(
         graph.close()
 
 
+def consolidate(
+    threshold: float = 0.0,
+    project: str = "",
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Find similar insight groups and merge each one.
+
+    Returns a summary with the total number of groups merged and insights deleted.
+    Only bumps the revision counter if at least one merge actually happened.
+    """
+    groups = find_similar_groups(threshold=threshold, project=project, limit=limit)
+
+    merged_count = 0
+    deleted_count = 0
+    results = []
+
+    for group in groups:
+        group_ids = [n["id"] for n in group]
+        result = merge_group(group_ids)
+        if result.get("status") == "ok":
+            merged_count += 1
+            deleted_count += result.get("merged_count", 0)
+            results.append(result)
+
+    if merged_count > 0:
+        from memcp.core.graph import GraphMemory
+
+        graph = GraphMemory()
+        try:
+            from memcp.core.revision import bump_revision, invalidate_index
+
+            bump_revision(graph._get_conn())
+            # Consolidate destructively deletes source insights; surviving
+            # nodes' semantic top-K may change — invalidate edges.
+            invalidate_index(graph._get_conn(), "edges")
+            graph._get_conn().commit()
+        finally:
+            graph.close()
+
+    return {
+        "status": "ok",
+        "groups_merged": merged_count,
+        "insights_deleted": deleted_count,
+        "results": results,
+    }
+
+
 def merge_group(
     group_ids: list[str],
     keep_id: str = "",
@@ -176,45 +223,68 @@ def merge_group(
             if node_imp > IMPORTANCE_ORDER.get(best_importance, 0):
                 best_importance = n["importance"]
 
-        # Update keeper
-        updates: dict[str, Any] = {
-            "tags": sorted(all_tags),
-            "entities": sorted(all_entities),
-            "access_count": total_access,
-        }
-        graph.update_node(keeper["id"], updates)
+        merged_content = merged_content.strip()
+        member_ids = [n["id"] for n in nodes]
 
-        # If importance needs upgrading, do it via direct SQL (not in allowed set)
-        conn = graph._get_conn()
         if merged_content:
-            conn.execute(
-                "UPDATE nodes SET content = ?, importance = ? WHERE id = ?",
-                (merged_content, best_importance, keeper["id"]),
-            )
-        else:
-            conn.execute(
-                "UPDATE nodes SET importance = ? WHERE id = ?",
-                (best_importance, keeper["id"]),
-            )
-        conn.commit()
+            # Content changed → mint a NEW immutable node and tombstone EVERY
+            # group member (incl. the old keeper). A raw `UPDATE nodes SET
+            # content` under an existing id breaks §2 immutability and, under
+            # the additive union, causes durable cross-machine content
+            # divergence (a stale peer keeps the old content). "New memory =
+            # new id." See spec §3.10.
+            from datetime import datetime, timezone
 
-        # Re-point edges from deleted nodes to keeper
-        deleted_ids = [n["id"] for n in others]
-        for did in deleted_ids:
-            conn.execute(
-                "UPDATE OR IGNORE edges SET source_id = ? WHERE source_id = ?",
-                (keeper["id"], did),
+            from memcp.core.fileutil import insight_id
+
+            now = datetime.now(timezone.utc)
+            new_id = insight_id(merged_content, now.isoformat())
+            graph.store(
+                {
+                    "id": new_id,
+                    "content": merged_content,
+                    "summary": keeper.get("summary", ""),
+                    "category": keeper.get("category", "general"),
+                    "importance": best_importance,
+                    "tags": sorted(all_tags),
+                    "entities": sorted(all_entities),
+                    "project": keeper.get("project", "default"),
+                    "session": keeper.get("session", ""),
+                    "access_count": total_access,
+                    "created_at": now.isoformat(),
+                }
             )
-            conn.execute(
-                "UPDATE OR IGNORE edges SET target_id = ? WHERE target_id = ?",
-                (keeper["id"], did),
+            for mid in member_ids:
+                graph.delete_node(mid)  # tombstones each member
+            kept_id = new_id
+            deleted_ids = member_ids
+        else:
+            # No content change → keep the keeper, union metadata onto it via
+            # the allow-listed update path, tombstone the non-keepers.
+            graph.update_node(
+                keeper["id"],
+                {
+                    "tags": sorted(all_tags),
+                    "entities": sorted(all_entities),
+                    "access_count": total_access,
+                    "importance": best_importance,
+                },
             )
-            graph.delete_node(did)
+            deleted_ids = [n["id"] for n in others]
+            for did in deleted_ids:
+                graph.delete_node(did)  # tombstones each non-keeper
+            kept_id = keeper["id"]
+
+        from memcp.core.revision import bump_revision, invalidate_index
+
+        conn = graph._get_conn()
+        bump_revision(conn)
+        invalidate_index(conn, "edges")
         conn.commit()
 
         return {
             "status": "ok",
-            "kept_id": keeper["id"],
+            "kept_id": kept_id,
             "merged_count": len(others),
             "deleted_ids": deleted_ids,
             "tags": sorted(all_tags),

@@ -10,7 +10,9 @@ all operations go through the graph. Legacy JSON data is auto-migrated.
 
 from __future__ import annotations
 
+import json
 import math
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -21,12 +23,14 @@ from memcp.core.fileutil import (
     atomic_write_json,
     content_hash,
     estimate_tokens,
+    insight_id,
     locked_read_json,
 )
 from memcp.core.graph import GraphMemory
 from memcp.core.project import get_current_project, get_current_session
+from memcp.core.snapshot_sync import snapshot_health
 
-VALID_CATEGORIES = {"decision", "fact", "preference", "finding", "todo", "general"}
+VALID_CATEGORIES = {"decision", "fact", "preference", "finding", "todo", "general", "episode"}
 VALID_IMPORTANCES = {"low", "medium", "high", "critical"}
 IMPORTANCE_WEIGHTS = {"low": 0.25, "medium": 0.5, "high": 0.75, "critical": 1.0}
 
@@ -34,11 +38,14 @@ IMPORTANCE_WEIGHTS = {"low": 0.25, "medium": 0.5, "high": 0.75, "critical": 1.0}
 def _use_graph() -> bool:
     """Check whether to use the graph backend.
 
-    Returns True if graph.db exists (meaning Phase 3 is active).
-    On first write, the graph is created and JSON data auto-migrated.
+    True if graph.db exists OR a snapshot dir is configured. Sync mode is always
+    graph-backed: on a fresh machine the pull that materializes graph.db is a
+    lazy side effect of NodeStore._get_conn, so without this a first remember()
+    would route to _remember_json and strand the row in memory.json, never to
+    propagate (§3.7). The _get_conn funnel then absorbs any legacy memory.json.
     """
     config = get_config()
-    return config.graph_db_path.exists()
+    return config.graph_db_path.exists() or bool(config.snapshot_dir)
 
 
 def _get_graph() -> GraphMemory:
@@ -124,6 +131,17 @@ def _compute_effective_importance(insight: dict[str, Any]) -> float:
     return round(effective, 4)
 
 
+def _capacity_eviction_enabled() -> bool:
+    """Capacity-eviction (auto-prune) is incompatible with the no-loss union.
+
+    When a Drive snapshot dir is configured (cross-machine sync), two machines
+    prune *different* rows (effective_importance is a non-converging local
+    counter), causing permanent cross-machine loss with zero operator error.
+    So capacity-eviction is disabled whenever sync is on. See spec §3.10.
+    """
+    return not get_config().snapshot_dir
+
+
 def _auto_prune(memory: dict[str, Any]) -> int:
     """Remove lowest effective_importance insights when at capacity.
 
@@ -131,6 +149,8 @@ def _auto_prune(memory: dict[str, Any]) -> int:
     """
     config = get_config()
     insights = memory["insights"]
+    if not _capacity_eviction_enabled():
+        return 0
     if len(insights) <= config.max_insights:
         return 0
 
@@ -187,10 +207,10 @@ def remember(
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
     entity_list = [e.strip() for e in entities.split(",") if e.strip()] if entities else []
 
-    insight_id = content_hash(content + now.isoformat())
+    new_id = insight_id(content, now.isoformat())
 
     insight = {
-        "id": insight_id,
+        "id": new_id,
         "content": content.strip(),
         "summary": summary.strip(),
         "category": category,
@@ -261,10 +281,12 @@ def _remember_graph(insight: dict[str, Any], content: str) -> dict[str, Any]:
     """Save insight via GraphMemory."""
     graph = _get_graph()
     try:
-        # Check for duplicate content (exact hash match)
+        # Check for duplicate content (exact hash match). Skip archived rows so
+        # re-remembering archived content creates a fresh active node rather than
+        # silently returning the hidden archived one as a no-op (§3.5).
         existing_hash = content_hash(content)
         conn = graph._get_conn()
-        rows = conn.execute("SELECT * FROM nodes").fetchall()
+        rows = conn.execute("SELECT * FROM nodes WHERE archived_at IS NULL").fetchall()
         for row in rows:
             if content_hash(row["content"]) == existing_hash:
                 return {**graph._row_to_dict(row), "_duplicate": True}
@@ -277,12 +299,19 @@ def _remember_graph(insight: dict[str, Any], content: str) -> dict[str, Any]:
         # Store with auto-edge generation
         result = graph.store(insight)
 
-        # Auto-prune if at capacity
+        # Bump revision for derived-index staleness detection
+        from memcp.core.revision import bump_revision
+
+        bump_revision(graph._get_conn())
+        graph._get_conn().commit()
+
+        # Auto-prune if at capacity (disabled when synced — see §3.10)
         config = get_config()
-        node_count = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
         pruned = 0
-        if node_count > config.max_insights:
-            pruned = _auto_prune_graph(graph, config.max_insights)
+        if _capacity_eviction_enabled():
+            node_count = conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+            if node_count > config.max_insights:
+                pruned = _auto_prune_graph(graph, config.max_insights)
 
         if pruned > 0:
             result["_pruned"] = pruned
@@ -333,6 +362,15 @@ def _auto_prune_graph(graph: GraphMemory, max_insights: int) -> int:
             graph.delete_node(row["id"])
             pruned += 1
 
+    if pruned > 0:
+        from memcp.core.revision import bump_revision, invalidate_index
+
+        bump_revision(graph._get_conn())
+        # Node deletions can leave surviving nodes' top-K semantic edges stale;
+        # invalidate so next rebuild runs a full edge regeneration.
+        invalidate_index(graph._get_conn(), "edges")
+        graph._get_conn().commit()
+
     return pruned
 
 
@@ -345,6 +383,7 @@ def recall(
     project: str = "",
     session: str = "",
     scope: str = "project",
+    use_graph: bool = True,
 ) -> list[dict[str, Any]]:
     """Retrieve insights from memory.
 
@@ -353,6 +392,7 @@ def recall(
     Increments access_count on returned insights.
 
     Uses GraphMemory (intent-aware traversal) when available, JSON fallback.
+    Set use_graph=False to bypass graph ranking and use keyword-only matching.
     """
     if category and category not in VALID_CATEGORIES:
         raise ValidationError(f"Invalid category {category!r}")
@@ -375,6 +415,7 @@ def recall(
             project=project,
             session=session,
             scope=scope,
+            use_edges=use_graph,
         )
 
     return _recall_json(
@@ -389,6 +430,57 @@ def recall(
     )
 
 
+def list_active(
+    project: str = "",
+    session: str = "",
+    scope: str = "project",
+    limit: int = 0,
+) -> list[dict[str, Any]]:
+    """Return active insights in scope WITHOUT mutating access metrics.
+
+    Unlike recall(), this does NOT bump access_count / last_accessed_at and does
+    NOT trigger Hebbian edge strengthening. It is the candidate-gathering path:
+    memcp_search must score the FULL active corpus (P3 — a recency-bounded
+    candidate window left ~96% of nodes unreachable), and touching every node's
+    access metadata on each search would be both semantically wrong and a
+    write-amplification hazard on a synced DB.
+
+    limit=0 means "all active nodes" (capped at config.max_insights).
+    """
+    if scope == "project" and not project:
+        project = get_current_project()
+    if scope == "session" and not session:
+        session = get_current_session()
+
+    cap = limit if limit > 0 else get_config().max_insights
+
+    if _use_graph():
+        graph = _get_graph()
+        try:
+            # use_edges=False skips Hebbian co-retrieval side effects; an empty
+            # query returns all active in-scope nodes (newest-first) up to cap.
+            return graph.query(
+                query="",
+                limit=cap,
+                project=project,
+                session=session,
+                scope=scope,
+                use_edges=False,
+            )
+        finally:
+            graph.close()
+
+    # JSON fallback: filter without bumping access metrics.
+    memory = _load_memory()
+    insights = list(memory["insights"])
+    if scope == "session" and session:
+        insights = [i for i in insights if i.get("session") == session]
+    elif scope == "project" and project:
+        insights = [i for i in insights if i.get("project") == project]
+    insights.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return insights[:cap]
+
+
 def _recall_graph(
     query: str = "",
     category: str = "",
@@ -398,6 +490,7 @@ def _recall_graph(
     project: str = "",
     session: str = "",
     scope: str = "project",
+    use_edges: bool = True,
 ) -> list[dict[str, Any]]:
     """Recall via GraphMemory with intent-aware traversal."""
     graph = _get_graph()
@@ -411,6 +504,7 @@ def _recall_graph(
             project=project,
             session=session,
             scope=scope,
+            use_edges=use_edges,
         )
 
         # Update access metrics
@@ -514,6 +608,89 @@ def _recall_json(
     return insights
 
 
+def update(
+    insight_id: str,
+    tags: str | None = None,
+    importance: str | None = None,
+    category: str | None = None,
+    summary: str | None = None,
+    entities: str | None = None,
+) -> dict[str, Any] | None:
+    """Update an existing insight in place — preserves id and all edges.
+
+    Only the provided fields are changed. Returns the updated insight dict, or
+    None if the insight wasn't found. Mutating importance also re-snapshots
+    effective_importance so ranking stays consistent with the categorical
+    level. Mutating category or importance is validated against the same
+    enums remember() enforces.
+    """
+    updates: dict[str, Any] = {}
+
+    if tags is not None:
+        updates["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+    if entities is not None:
+        updates["entities"] = [e.strip() for e in entities.split(",") if e.strip()]
+    if summary is not None:
+        updates["summary"] = summary.strip()
+    if category is not None:
+        if category not in VALID_CATEGORIES:
+            raise ValidationError(
+                f"Invalid category {category!r}. Must be one of {VALID_CATEGORIES}"
+            )
+        updates["category"] = category
+    if importance is not None:
+        if importance not in VALID_IMPORTANCES:
+            raise ValidationError(
+                f"Invalid importance {importance!r}. Must be one of {VALID_IMPORTANCES}"
+            )
+        updates["importance"] = importance
+        updates["effective_importance"] = IMPORTANCE_WEIGHTS.get(importance, 0.5)
+
+    if not updates:
+        raise ValidationError("update() requires at least one field to change")
+
+    if _use_graph():
+        graph = _get_graph()
+        try:
+            ok = graph.update_node(insight_id, updates)
+            if not ok:
+                return None
+            from memcp.core.revision import bump_revision, invalidate_index
+
+            bump_revision(graph._get_conn())
+            invalidate_index(graph._get_conn(), "edges")
+            graph._get_conn().commit()
+            updated = graph.get_node(insight_id)
+        finally:
+            graph.close()
+    else:
+        memory = _load_memory()
+        updated = None
+        for ins in memory["insights"]:
+            if ins.get("id") == insight_id:
+                if "tags" in updates:
+                    ins["tags"] = updates["tags"]
+                if "entities" in updates:
+                    ins["entities"] = updates["entities"]
+                if "summary" in updates:
+                    ins["summary"] = updates["summary"]
+                if "category" in updates:
+                    ins["category"] = updates["category"]
+                if "importance" in updates:
+                    ins["importance"] = updates["importance"]
+                    ins["effective_importance"] = updates["effective_importance"]
+                updated = ins
+                break
+        if updated is None:
+            return None
+        _save_memory(memory)
+
+    from memcp.core.search import invalidate_bm25_cache
+
+    invalidate_bm25_cache()
+    return updated
+
+
 def forget(insight_id: str) -> bool:
     """Remove an insight by ID. Returns True if found and removed.
 
@@ -523,6 +700,13 @@ def forget(insight_id: str) -> bool:
         graph = _get_graph()
         try:
             removed = graph.delete_node(insight_id)
+            # Only bump if something was actually deleted
+            if removed:
+                from memcp.core.revision import bump_revision, invalidate_index
+
+                bump_revision(graph._get_conn())
+                invalidate_index(graph._get_conn(), "edges")
+                graph._get_conn().commit()
         finally:
             graph.close()
     else:
@@ -544,6 +728,230 @@ def forget(insight_id: str) -> bool:
     return removed
 
 
+def get_insight(insight_id: str) -> dict[str, Any] | list[dict[str, Any]] | None:
+    """Resolve a single insight by full id or by an id prefix.
+
+    Returns:
+        - the insight dict when exactly one match is found (full id or
+          unambiguous prefix),
+        - a list of candidate dicts when a prefix matches 2+ insights
+          (the caller disambiguates — never a wrong single result),
+        - None when nothing matches.
+
+    Works against both the graph backend and the JSON fallback. Archived
+    rows are excluded so a prefix resolves only active insights.
+    """
+    needle = (insight_id or "").strip()
+    if not needle:
+        raise ValidationError("insight_id cannot be empty")
+
+    if _use_graph():
+        graph = _get_graph()
+        try:
+            conn = graph._get_conn()
+            # Exact match first — a full id always wins outright.
+            exact = conn.execute(
+                "SELECT * FROM nodes WHERE id = ? AND archived_at IS NULL",
+                (needle,),
+            ).fetchone()
+            if exact is not None:
+                return graph._row_to_dict(exact)
+            rows = conn.execute(
+                "SELECT * FROM nodes WHERE id LIKE ? AND archived_at IS NULL",
+                (needle + "%",),
+            ).fetchall()
+            matches = [graph._row_to_dict(r) for r in rows]
+        finally:
+            graph.close()
+    else:
+        memory = _load_memory()
+        insights = [i for i in memory["insights"] if not i.get("archived_at")]
+        exact_match = next((i for i in insights if i.get("id") == needle), None)
+        if exact_match is not None:
+            return exact_match
+        matches = [i for i in insights if str(i.get("id", "")).startswith(needle)]
+
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+    return matches
+
+
+# ── Direct Corpus Interaction (DCI): exact / regex / tag-conjunction grep ──
+
+VALID_GREP_FIELDS = ("content", "summary", "tags", "entities")
+
+
+def _as_str_list(value: Any) -> list[str]:
+    """Coerce a tags/entities cell (JSON-text from the graph, or an already-parsed
+    list from the JSON backend) to a list of strings."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return []
+
+
+def _grep_snippet(text: str, match: re.Match[str], context_chars: int) -> str:
+    """Return text around a match, ±context_chars, with ellipsis on truncated sides."""
+    start = max(0, match.start() - context_chars)
+    end = min(len(text), match.end() + context_chars)
+    snippet = text[start:end]
+    if start > 0:
+        snippet = "…" + snippet
+    if end < len(text):
+        snippet = snippet + "…"
+    return snippet
+
+
+def grep(
+    pattern: str,
+    fields: list[str] | None = None,
+    project: str = "",
+    tags_all: list[str] | None = None,
+    category: str = "",
+    importance: str = "",
+    fixed_strings: bool = False,
+    ignore_case: bool = True,
+    context_chars: int = 120,
+    limit: int = 50,
+    include_archived: bool = False,
+) -> list[dict[str, Any]]:
+    """Exact / regex / tag-conjunction search over the insight store — no ranking, no embeddings.
+
+    Direct Corpus Interaction (DCI): the deterministic complement to the
+    similarity-first ``recall``/``search`` path. The corpus is tiny (~1700 rows,
+    ~1MB) so a whole-table scan + Python ``re`` is sub-50ms — no FTS/index needed.
+    Pairs with ``get_insight(id)`` to read a full match. ADDITIVE — does not touch
+    semantic search, hybrid ranking, or the graph.
+
+    Args mirror SPEC-memcp_grep.md. ``fields`` defaults to ``["content"]`` and may
+    include any of ``content``/``summary``/``tags``/``entities``. ``tags_all`` is a
+    boolean AND over the insight's tag list (exact membership). Column filters
+    (``project``/``category``/``importance``/archived) are applied in SQL; regex +
+    ``tags_all`` in Python. Results are sorted deterministically by
+    ``(created_at, id)`` and capped at ``limit``.
+
+    Raises ValidationError on an empty pattern, an unknown field, or an invalid regex.
+
+    Note on archived: grep scans the live ``nodes`` table and toggles the
+    ``archived_at IS NULL`` filter via ``include_archived``. In synced mode
+    (the production posture) archiving sets ``archived_at`` in-band, so
+    ``include_archived=True`` surfaces archived rows. In local-only mode
+    ``archive_insight`` hard-deletes the row to a side-file (out of grep's
+    nodes-table scope), so archived rows are not grep-reachable there.
+    """
+    if not (pattern or "").strip():
+        raise ValidationError("grep requires a non-empty pattern")
+
+    fields = list(fields) if fields else ["content"]
+    bad_fields = [f for f in fields if f not in VALID_GREP_FIELDS]
+    if bad_fields:
+        raise ValidationError(
+            f"Invalid grep field(s) {bad_fields}. Must be subset of {list(VALID_GREP_FIELDS)}"
+        )
+
+    tags_all = [t.strip() for t in (tags_all or []) if t.strip()]
+
+    needle = re.escape(pattern) if fixed_strings else pattern
+    try:
+        rx = re.compile(needle, re.IGNORECASE if ignore_case else 0)
+    except re.error as e:
+        raise ValidationError(f"Invalid regex pattern {pattern!r}: {e}") from e
+
+    rows = _grep_fetch_rows(project, category, importance, include_archived)
+
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        row_tags = _as_str_list(row.get("tags"))
+        if tags_all and not all(t in row_tags for t in tags_all):
+            continue
+
+        matches: list[dict[str, str]] = []
+        for field in fields:
+            if field in ("tags", "entities"):
+                items = row_tags if field == "tags" else _as_str_list(row.get("entities"))
+                hits = [it for it in items if rx.search(it)]
+                if hits:
+                    matches.append({"field": field, "snippet": ", ".join(hits)})
+            else:
+                text = row.get(field) or ""
+                m = rx.search(text)
+                if m:
+                    matches.append(
+                        {"field": field, "snippet": _grep_snippet(text, m, context_chars)}
+                    )
+        if not matches:
+            continue
+
+        results.append(
+            {
+                "id": row["id"],
+                "category": row.get("category"),
+                "importance": row.get("importance"),
+                "project": row.get("project"),
+                "tags": row_tags,
+                "matches": matches,
+                "created_at": row.get("created_at"),
+            }
+        )
+
+    results.sort(key=lambda r: (r["created_at"] or "", r["id"]))
+    return results[:limit]
+
+
+def _grep_fetch_rows(
+    project: str, category: str, importance: str, include_archived: bool
+) -> list[dict[str, Any]]:
+    """Fetch column-filtered rows (archived honored) from whichever backend is active.
+
+    Read-only; mirrors get_insight's posture (don't block on the writer)."""
+    if _use_graph():
+        graph = _get_graph()
+        try:
+            conn = graph._get_conn()
+            sql = (
+                "SELECT id, content, summary, tags, entities, category, importance, "
+                "project, created_at, archived_at FROM nodes"
+            )
+            conds: list[str] = []
+            params: list[Any] = []
+            if not include_archived:
+                conds.append("archived_at IS NULL")
+            if project:
+                conds.append("project = ?")
+                params.append(project)
+            if category:
+                conds.append("category = ?")
+                params.append(category)
+            if importance:
+                conds.append("importance = ?")
+                params.append(importance)
+            if conds:
+                sql += " WHERE " + " AND ".join(conds)
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+        finally:
+            graph.close()
+
+    memory = _load_memory()
+    rows: list[dict[str, Any]] = []
+    for ins in memory["insights"]:
+        if not include_archived and ins.get("archived_at"):
+            continue
+        if project and ins.get("project") != project:
+            continue
+        if category and ins.get("category") != category:
+            continue
+        if importance and ins.get("importance") != importance:
+            continue
+        rows.append(ins)
+    return rows
+
+
 def memory_status(project: str = "", session: str = "") -> dict[str, Any]:
     """Return memory statistics.
 
@@ -556,6 +964,79 @@ def memory_status(project: str = "", session: str = "") -> dict[str, Any]:
     if _use_graph():
         return _status_graph(project=project, session=session)
     return _status_json(project=project, session=session)
+
+
+def generate_index(project: str = "") -> str:
+    """Generate a progressive disclosure index as markdown.
+
+    Returns a lightweight markdown string listing all insights grouped by
+    category, with one-line summaries. Designed to be read by the agent
+    before deciding what to query in depth.
+    """
+    if not project:
+        project = get_current_project()
+
+    # Fetch all insights for the project
+    if _use_graph():
+        graph = _get_graph()
+        try:
+            conn = graph._get_conn()
+            if project:
+                rows = conn.execute(
+                    "SELECT * FROM nodes WHERE project = ? AND archived_at IS NULL "
+                    "ORDER BY category, created_at DESC",
+                    (project,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM nodes WHERE archived_at IS NULL "
+                    "ORDER BY category, created_at DESC"
+                ).fetchall()
+            insights = [graph._row_to_dict(r) for r in rows]
+        finally:
+            graph.close()
+    else:
+        memory = _load_memory()
+        insights = memory["insights"]
+        if project:
+            insights = [i for i in insights if i.get("project") == project]
+        insights.sort(key=lambda x: (x.get("category", "general"), x.get("created_at", "")))
+
+    if not insights:
+        return f"# Index: {project or 'all'}\n\nNo insights stored yet.\n"
+
+    # Group by category
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for ins in insights:
+        cat = ins.get("category", "general")
+        grouped.setdefault(cat, []).append(ins)
+
+    lines = [f"# Index: {project or 'all'}", ""]
+    total = len(insights)
+    total_tokens = sum(i.get("token_count", 0) for i in insights)
+    lines.append(f"**{total} insights** | ~{total_tokens} tokens")
+    lines.append("")
+
+    for cat in sorted(grouped.keys()):
+        items = grouped[cat]
+        lines.append(f"## {cat.title()} ({len(items)})")
+        lines.append("")
+        for ins in items:
+            summary = ins.get("summary", "").strip()
+            if not summary:
+                # Truncate content as fallback summary
+                summary = ins.get("content", "")[:80].replace("\n", " ").strip()
+                if len(ins.get("content", "")) > 80:
+                    summary += "..."
+            importance = ins.get("importance", "medium")
+            tag_str = ""
+            tags = ins.get("tags", [])
+            if tags:
+                tag_str = f" `{', '.join(tags[:3])}`"
+            lines.append(f"- **[{importance}]** {summary}{tag_str} — `{ins['id'][:8]}`")
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 def _status_graph(project: str = "", session: str = "") -> dict[str, Any]:
@@ -573,6 +1054,9 @@ def _status_graph(project: str = "", session: str = "") -> dict[str, Any]:
         if session:
             conditions.append("session = ?")
             params.append(session)
+        # Archived rows are a synced soft-state (§3.5) — exclude from status
+        # counts so synced (in-band archive) matches non-synced (hard delete).
+        conditions.append("archived_at IS NULL")
 
         where = " AND ".join(conditions) if conditions else "1=1"
         rows = conn.execute(
@@ -623,6 +1107,37 @@ def _status_graph(project: str = "", session: str = "") -> dict[str, Any]:
             "top_entities": graph_stats["top_entities"],
         }
 
+        # Cross-machine snapshot health (blob count, disk, GC floor + pinning
+        # host) — surfaces ledger drift before it grows disk. Omitted when no
+        # snapshot dir is configured.
+        snap = snapshot_health(config.snapshot_dir)
+        if snap:
+            result["snapshot"] = snap
+
+        # Live sync-instance health + convergence audit (P0 detection). The
+        # status query above opened the connection through graph._node_store, so
+        # its SnapshotSync (if sync is configured) is initialized and reachable.
+        sync = getattr(graph._node_store, "_sync", None)
+        if sync is not None:
+            snap_section = result.setdefault("snapshot", {})
+            snap_section["instance"] = sync.instance_health()
+            conv = sync.convergence_audit()
+            if conv:
+                snap_section["convergence"] = conv
+
+        # Where (and whether) metadata-only event telemetry is being written.
+        result["telemetry"] = {
+            "enabled": config.telemetry_enabled,
+            "dir": config.telemetry_dir,
+        }
+
+        # Fail-closed local write-lock failures (P5): a non-zero count means a
+        # misconfigured/unwritable lock dir forced writes to surface errors
+        # instead of silently degrading serialization.
+        from memcp.core.write_lock import local_lock_failure_count
+
+        result["write_lock"] = {"local_lock_failures": local_lock_failure_count()}
+
         return result
     finally:
         graph.close()
@@ -669,4 +1184,17 @@ def _status_json(project: str = "", session: str = "") -> dict[str, Any]:
         "oldest": min((i.get("created_at", "") for i in insights), default=None),
         "newest": max((i.get("created_at", "") for i in insights), default=None),
         "backend": "json",
+        "telemetry": {
+            "enabled": config.telemetry_enabled,
+            "dir": config.telemetry_dir,
+        },
+        "write_lock": {
+            "local_lock_failures": _local_lock_failures_in_status(),
+        },
     }
+
+
+def _local_lock_failures_in_status() -> int:
+    from memcp.core.write_lock import local_lock_failure_count
+
+    return local_lock_failure_count()

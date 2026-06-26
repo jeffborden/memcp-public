@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +29,25 @@ def safe_name(name: str) -> str:
 
 
 def content_hash(text: str) -> str:
-    """SHA-256 hash of normalized text (stripped, lowered)."""
+    """SHA-256 hash of normalized text (stripped, lowered).
+
+    16-hex (64-bit) — used as a dedup / context identity key, NOT as a durable
+    node id. For node ids use :func:`insight_id` (full width) — a truncated id
+    under the merge union's INSERT OR IGNORE would silently drop a genuinely
+    different insight on a 64-bit collision (§3.9).
+    """
     normalized = text.strip().lower()
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
+def insight_id(content: str, created_at: str) -> str:
+    """Full-width (256-bit / 64-hex) durable id for an insight.
+
+    Never truncated: under the cross-machine merge union (``INSERT OR IGNORE``)
+    a 64-bit prefix collision between two genuinely different insights would be
+    real data loss. See spec §3.9.
+    """
+    return hashlib.sha256((content + created_at).encode("utf-8")).hexdigest()
 
 
 def atomic_write_json(path: Path, data: Any) -> None:
@@ -95,6 +112,47 @@ def locked_read_json(path: Path) -> Any:
         try:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def locked_update_json(path: Path, mutate: Callable[[Any], Any], default: Any = None) -> Any:
+    """Read-modify-write a JSON file under a SINGLE exclusive lock (TOCTOU-safe).
+
+    Holds ``LOCK_EX`` across the whole read → mutate → atomic-write cycle, so two
+    concurrent updaters can never each read the old contents and clobber the
+    other's write. ``mutate`` receives the current contents (or ``default`` if
+    the file is missing/empty/corrupt) and returns the new contents. Returns the
+    written value.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_suffix(path.suffix + ".lock")
+
+    with open(lock_path, "w") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            current = default
+            if path.exists():
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        current = json.load(f)
+                except (ValueError, OSError):
+                    current = default
+
+            new_data = mutate(current)
+
+            # Atomic replace while still holding the lock (don't call
+            # atomic_write_json — it would re-lock the same file).
+            fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+            try:
+                with open(fd, "w", encoding="utf-8") as f:
+                    json.dump(new_data, f, ensure_ascii=False, indent=2, default=str)
+                Path(tmp_path).replace(path)
+            except BaseException:
+                Path(tmp_path).unlink(missing_ok=True)
+                raise
+            return new_data
         finally:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 

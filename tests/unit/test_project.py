@@ -63,6 +63,44 @@ class TestDetectProject:
         # Use root as cwd — basename is empty
         assert detect_project(cwd="/") == "default"
 
+    def test_blocked_basename_falls_through(
+        self, isolated_data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("MEMCP_PROJECT", raising=False)
+        # Common-parent name "projects" should not become a project.
+        blocked_dir = tmp_path / "projects"
+        blocked_dir.mkdir()
+        assert detect_project(cwd=str(blocked_dir)) == "default"
+
+    def test_blocked_user_basename_falls_through(
+        self, isolated_data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("MEMCP_PROJECT", raising=False)
+        monkeypatch.setenv("USER", "ghostuser")
+        user_dir = tmp_path / "ghostuser"
+        user_dir.mkdir()
+        assert detect_project(cwd=str(user_dir)) == "default"
+
+    def test_blocked_git_repo_falls_through_to_basename(
+        self, isolated_data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("MEMCP_PROJECT", raising=False)
+        # .git lives in a "src" directory, but cwd is a real project name beneath it.
+        blocked_repo = tmp_path / "src"
+        blocked_repo.mkdir()
+        (blocked_repo / ".git").mkdir()
+        real_child = blocked_repo / "real-project"
+        real_child.mkdir()
+        # Git walk-up returns "src" (blocked) → falls through → basename "real-project".
+        assert detect_project(cwd=str(real_child)) == "real-project"
+
+    def test_env_var_bypasses_blocklist(
+        self, isolated_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # MEMCP_PROJECT is explicit user choice; respect it even if blocked.
+        monkeypatch.setenv("MEMCP_PROJECT", "projects")
+        assert detect_project() == "projects"
+
 
 class TestGenerateSessionId:
     def test_format(self, isolated_data_dir: Path) -> None:
@@ -251,12 +289,20 @@ class TestListProjects:
         assert result == []
 
     def test_from_sessions(self, isolated_data_dir: Path) -> None:
+        # Default list_projects() hides session-only ghosts. Pass
+        # include_empty=True to see all session-registered projects.
         register_session("s1", "proj_a")
         register_session("s2", "proj_b")
-        result = list_projects()
+        result = list_projects(include_empty=True)
         names = [p["name"] for p in result]
         assert "proj_a" in names
         assert "proj_b" in names
+
+    def test_session_only_projects_hidden_by_default(self, isolated_data_dir: Path) -> None:
+        register_session("s1", "ghost-proj")
+        result = list_projects()
+        names = [p["name"] for p in result]
+        assert "ghost-proj" not in names
 
     def test_from_graph(self, isolated_data_dir: Path) -> None:
         from memcp.core.memory import remember

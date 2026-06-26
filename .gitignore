@@ -17,3 +17,16 @@ htmlcov/
 # Claude Code config (templates are deployed to ~/.claude/ by install.sh)
 .claude/
 alternatives/
+
+# Playwright MCP session artifacts (console logs, page snapshots)
+.playwright-mcp/
+
+# Local-only env (eval harness API keys)
+.env.local
+
+# MemCP snapshot-sync artifacts (should only ever live in a snapshot dir)
+graph.snapshot.*
+.sync_meta.json
+
+# Benchmark artifacts (generated)
+benchmark_output/

@@ -7,6 +7,7 @@ collection.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -49,8 +50,10 @@ def _reset_singletons() -> None:
 def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Give every benchmark its own data directory."""
     data_dir = tmp_path / "memcp-bench"
+    for key in list(os.environ):  # strip leaked MEMCP_* so the bench env matches CI
+        if key.startswith("MEMCP_"):
+            monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("MEMCP_DATA_DIR", str(data_dir))
-    monkeypatch.delenv("MEMCP_PROJECT", raising=False)
     _reset_singletons()
     yield data_dir
     _reset_singletons()

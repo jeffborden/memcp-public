@@ -21,6 +21,7 @@ ADRs document significant architectural and technology choices made during the d
 | [ADR-011](011-hebbian-learning-edge-decay.md) | Hebbian Co-Retrieval Strengthening and Edge Decay | Accepted | 2026-02-18 |
 | [ADR-012](012-reciprocal-rank-fusion-search.md) | Reciprocal Rank Fusion Search | Accepted | 2026-02-18 |
 | [ADR-013](013-memory-feedback-consolidation.md) | Memory Feedback and Consolidation | Accepted | 2026-02-18 |
+| [ADR-014](014-rebuildable-derived-indexes.md) | Rebuildable Derived Indexes | Accepted | 2026-04-20 |
 
 ## Format
 

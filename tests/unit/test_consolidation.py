@@ -144,3 +144,33 @@ class TestConsolidationTools:
         _init_graph()
         result = json.loads(do_consolidate("single_id"))
         assert result["status"] == "error"
+
+
+def test_consolidate_bumps_revision(isolated_data_dir):
+    from memcp.core import consolidation, memory
+    from memcp.core.graph import GraphMemory
+    from memcp.core.revision import get_revision
+
+    # Pre-create the graph DB so memory.remember() uses the graph backend
+    graph = GraphMemory()
+    graph._get_conn()  # trigger schema creation
+
+    # Create two near-duplicate insights (Jaccard similarity ~0.75 at threshold=0.5)
+    memory.remember(
+        "Python uses the GIL to lock the interpreter",
+        category="fact",
+        importance="low",
+    )
+    memory.remember(
+        "Python uses the GIL to limit the interpreter",
+        category="fact",
+        importance="low",
+    )
+
+    before = get_revision(graph._get_conn())
+
+    # Use a threshold below the sentence similarity (~0.75) to force consolidation
+    consolidation.consolidate(threshold=0.5)
+
+    after = get_revision(graph._get_conn())
+    assert after > before

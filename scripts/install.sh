@@ -103,39 +103,52 @@ preflight_checks() {
     print_step 1 "Pre-flight checks"
     echo ""
 
-    # Python version
-    if command -v python3 &>/dev/null; then
-        PY_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-        PY_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
-        PY_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
-        if [[ "$PY_MAJOR" -ge 3 && "$PY_MINOR" -ge 10 ]]; then
-            print_ok "Python ${PY_VERSION} detected (>= 3.10 required)"
-            PYTHON_CMD="python3"
-        else
-            print_fail "Python ${PY_VERSION} is too old (>= 3.10 required)"
-            ERRORS=$((ERRORS+1))
+    # Python version — try python3.13, python3.12, python3.11, python3.10, then python3.
+    # This handles systems where `python3` points to an older version (e.g. macOS 3.9)
+    # but a newer Python is installed via homebrew / pyenv / etc.
+    PYTHON_CMD=""
+    for candidate in python3.13 python3.12 python3.11 python3.10 python3; do
+        if command -v "$candidate" &>/dev/null; then
+            cand_major=$("$candidate" -c 'import sys; print(sys.version_info.major)' 2>/dev/null || echo 0)
+            cand_minor=$("$candidate" -c 'import sys; print(sys.version_info.minor)' 2>/dev/null || echo 0)
+            if [[ "$cand_major" -ge 3 && "$cand_minor" -ge 10 ]]; then
+                PY_VERSION="${cand_major}.${cand_minor}"
+                PYTHON_CMD="$candidate"
+                print_ok "Python ${PY_VERSION} detected via ${candidate} (>= 3.10 required)"
+                break
+            fi
         fi
-    else
-        print_fail "Python 3 not found"
-        print_info "Install Python 3.10+ from https://python.org"
+    done
+
+    if [[ -z "$PYTHON_CMD" ]]; then
+        if command -v python3 &>/dev/null; then
+            fallback_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+            print_fail "Python ${fallback_version} is too old (>= 3.10 required)"
+            print_info "Install Python 3.10+ (e.g., brew install python@3.12) and re-run"
+        else
+            print_fail "Python 3 not found"
+            print_info "Install Python 3.10+ from https://python.org"
+        fi
         ERRORS=$((ERRORS+1))
     fi
 
-    # pip
-    if $PYTHON_CMD -m pip --version &>/dev/null 2>&1; then
+    # pip (requires a valid Python command)
+    if [[ -n "$PYTHON_CMD" ]] && $PYTHON_CMD -m pip --version &>/dev/null 2>&1; then
         PIP_VERSION=$($PYTHON_CMD -m pip --version 2>/dev/null | awk '{print $2}')
         print_ok "pip ${PIP_VERSION} available"
-    else
+    elif [[ -n "$PYTHON_CMD" ]]; then
         print_fail "pip not found"
         print_info "Install pip: ${PYTHON_CMD} -m ensurepip --upgrade"
         ERRORS=$((ERRORS+1))
     fi
 
-    # venv module
-    if $PYTHON_CMD -c "import venv" &>/dev/null 2>&1; then
-        print_ok "venv module available"
-    else
-        print_warn "venv module not found — may need: apt install python3-venv"
+    # venv module (requires a valid Python command)
+    if [[ -n "$PYTHON_CMD" ]]; then
+        if $PYTHON_CMD -c "import venv" &>/dev/null 2>&1; then
+            print_ok "venv module available"
+        else
+            print_warn "venv module not found — may need: apt install python3-venv"
+        fi
     fi
 
     # Claude CLI

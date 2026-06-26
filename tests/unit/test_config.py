@@ -155,3 +155,58 @@ class TestConfigValidation:
         assert config.importance_decay_days == 0
         assert config.retention_archive_days == 0
         assert config.retention_purge_days == 0
+
+
+def test_reindex_on_session_start_default_true(monkeypatch):
+    monkeypatch.delenv("MEMCP_REINDEX_ON_SESSION_START", raising=False)
+    from memcp import config as cfg_mod
+
+    cfg_mod._config = None
+    cfg = cfg_mod.get_config()
+    assert cfg.reindex_on_session_start is True
+
+
+def test_reindex_on_session_start_env_override(monkeypatch):
+    monkeypatch.setenv("MEMCP_REINDEX_ON_SESSION_START", "false")
+    from memcp import config as cfg_mod
+
+    cfg_mod._config = None
+    cfg = cfg_mod.get_config()
+    assert cfg.reindex_on_session_start is False
+
+
+def test_reindex_latency_warn_ms_default(monkeypatch):
+    monkeypatch.delenv("MEMCP_REINDEX_LATENCY_WARN_MS", raising=False)
+    from memcp import config as cfg_mod
+
+    cfg_mod._config = None
+    cfg = cfg_mod.get_config()
+    assert cfg.reindex_latency_warn_ms == 3000
+
+
+def test_semantic_recall_default_matches_arm_f_gate(monkeypatch):
+    """Phase 4 Item 4, test 7 — the shipped default of MEMCP_SEMANTIC_RECALL
+    MUST equal the pre-registered Arm F gate verdict, mechanically.
+
+    The gate (docs/eval/run_arm_f.py) writes results-arm-f.json with a
+    flip_rule.FLIP_DEFAULT boolean computed from the four pre-registered
+    criteria. The default-on flip is allowed to land ONLY with that verdict, so
+    this test reads the artifact and asserts the config default tracks it. A
+    future re-run that flips the gate forces the config default to change in
+    lockstep (and vice versa) — they cannot silently diverge.
+    """
+    import json
+
+    repo_root = Path(__file__).resolve().parents[2]
+    arm_f = json.loads((repo_root / "docs/eval/results-arm-f.json").read_text())
+    flip = arm_f["flip_rule"]["FLIP_DEFAULT"]
+
+    monkeypatch.delenv("MEMCP_SEMANTIC_RECALL", raising=False)
+    from memcp import config as cfg_mod
+
+    cfg_mod._config = None
+    cfg = cfg_mod.get_config()
+    assert cfg.semantic_recall_enabled is flip, (
+        f"config default semantic_recall_enabled={cfg.semantic_recall_enabled} "
+        f"must equal Arm F FLIP_DEFAULT={flip}"
+    )

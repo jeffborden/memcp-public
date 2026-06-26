@@ -104,6 +104,20 @@ memcp_recall(scope="all")  # Cross-project search
 - `max_tokens` is useful to control how much context enters the prompt
 - Access count is incremented on each recall, affecting importance decay
 
+**Ranking knobs (env vars):** The intent ranker decouples two independent terms.
+
+| Var | Default | Effect |
+|-----|---------|--------|
+| `MEMCP_KIND_WEIGHT` | `true` | Apply the `kind:` demotion as a multiplicative factor on the final relevance score (kb/untagged 1.0×, op 0.5×, pointer 0.3×, episode 0.2×). Independent of edge counts — a `kind:op` note never outranks durable `kind:kb` knowledge on equal keywords. |
+| `MEMCP_EDGE_BOOST` | `false` | Add the intent-weighted edge boost to the score. **Off by default** (Phase 2 eval Arm D): when off, the two per-node `COUNT(*) FROM edges` queries do not execute at all — a ~8.9× p50 latency win (92.5 ms → 10.4 ms on the 1501-node freeze) with no significant nDCG loss. Set `MEMCP_EDGE_BOOST=true` to opt back in. |
+| `MEMCP_SEMANTIC_RECALL` | `false` | Blend a semantic term into recall — embed the query once and sweep it against the stored node embeddings, so abstract phrasings can bridge to concrete nodes that share ~no keywords (MemCP insight `4154e880`). Score = `(1 − w)·keyword + w·semantic`. **Off by default**: the Phase 3 eval gate (Arm E) found `model2vec`'s static embeddings place the abstract behavioral queries 83rd–798th from their concrete answers, so 0 of 5 bridging queries revived — the gap is in the embedding space, not the ranker (see `docs/eval/graph-ab-2026-06-10.md` § Arm E). A transiently unavailable embedder degrades the call to keyword-only (no exception, no index churn). Set `MEMCP_SEMANTIC_RECALL=true` to opt in. |
+| `MEMCP_SEMANTIC_WEIGHT` | `0.5` | Blend weight `w` on the semantic term (0 = pure keyword, 1 = pure semantic). Only consulted when `MEMCP_SEMANTIC_RECALL=true`. |
+| `MEMCP_EMBEDDER_TIER` | `auto` | Which embedder the semantic path uses: `hq` (FastEmbed / **bge-small-en-v1.5** — the contextual tier that bridges abstract behavioral queries), `model2vec` (fast static), `keyword` (none), or `auto` (hq if `fastembed` installed → model2vec → keyword). **Degrade chain:** a transiently unavailable tier falls back to keyword-only *for that call* without flipping the embeddings `model_version` (no full re-embed storm); a genuine tier switch is a real model change and re-embeds once. `MEMCP_EMBEDDING_PROVIDER` (legacy) still forces a concrete provider and bypasses the ladder. |
+
+**Theme cache (Phase 4, machine-local derived data — ADR-014).** When `MEMCP_SEMANTIC_RECALL` is on, each node's *embedded* text is `themes + "\n" + content[:2000]` when a valid theme exists, plain content otherwise. Themes are 1–2 behavioral/conceptual lines generated **blind** from node content (never from queries) by `scripts/theme_backfill.py` and stored in `<data_dir>/cache/themes.sqlite`, keyed by `(node_id, content_sha)`. They are **not** a column on the synced `nodes` table — in-place mutations of synced rows don't propagate (INSERT-OR-IGNORE union), so themes are local, rebuildable, and add zero sync surface. A content change invalidates the theme automatically (sha mismatch → treated as missing → plain-content embed). Each machine pays its own cheap backfill; a missing/locked theme cache silently degrades to plain content (never load-bearing).
+
+`use_graph=False` (the keyword-only path) disables **all** of these terms regardless of the env vars above — its meaning is unchanged.
+
 ---
 
 ### memcp_forget

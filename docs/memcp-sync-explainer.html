@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MemCP — Cross-machine sync &amp; contention, explained</title>
+<style>
+  :root{
+    --bg:#0c0e12; --panel:#14171d; --panel2:#1b1f27; --ink:#e7e9ee; --dim:#9aa3b2;
+    --line:#262b35; --accent:#6ea8fe; --good:#5ad19a; --bad:#ff7a85; --warn:#f5c065;
+    --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.6;font-size:16px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px 120px}
+  header{padding:64px 0 28px;border-bottom:1px solid var(--line);margin-bottom:8px}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin:0 0 14px}
+  h1{font-size:clamp(30px,5vw,46px);line-height:1.08;margin:0 0 16px;letter-spacing:-.02em}
+  .lede{font-size:18px;color:var(--dim);max-width:720px;margin:0}
+  .meta{font-family:var(--mono);font-size:12px;color:var(--dim);margin-top:22px;display:flex;gap:18px;flex-wrap:wrap}
+  .meta b{color:var(--ink);font-weight:600}
+  h2{font-size:26px;margin:64px 0 6px;letter-spacing:-.01em}
+  h2 .num{font-family:var(--mono);font-size:14px;color:var(--accent);display:block;margin-bottom:6px;letter-spacing:.1em}
+  h3{font-size:18px;margin:34px 0 8px}
+  p{margin:14px 0}
+  code{font-family:var(--mono);font-size:.86em;background:var(--panel2);border:1px solid var(--line);padding:1px 6px;border-radius:5px;color:#cdd6e6}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px 26px;margin:22px 0}
+  .card.tight{padding:18px 22px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid var(--line);color:var(--dim);margin-right:6px}
+  .tag.good{color:var(--good);border-color:#2c4a3c}
+  .tag.bad{color:var(--bad);border-color:#4a2c30}
+  .tag.warn{color:var(--warn);border-color:#4a4029}
+  .callout{border-left:3px solid var(--accent);padding:4px 0 4px 18px;margin:22px 0;color:var(--dim)}
+  .callout b{color:var(--ink)}
+  .callout.good{border-color:var(--good)}
+  .callout.bad{border-color:var(--bad)}
+  .callout.warn{border-color:var(--warn)}
+  svg{display:block;width:100%;height:auto;margin:6px 0}
+  .figcap{font-family:var(--mono);font-size:12px;color:var(--dim);text-align:center;margin:2px 0 4px}
+  ul.clean{list-style:none;padding:0;margin:14px 0}
+  ul.clean li{padding:10px 0 10px 30px;border-bottom:1px solid var(--line);position:relative}
+  ul.clean li:last-child{border-bottom:none}
+  ul.clean li::before{content:"›";position:absolute;left:6px;top:9px;color:var(--accent);font-weight:700}
+  .step{display:flex;gap:16px;align-items:flex-start;padding:14px 0;border-bottom:1px solid var(--line)}
+  .step:last-child{border-bottom:none}
+  .step .n{flex:0 0 34px;height:34px;border-radius:9px;background:var(--panel2);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-family:var(--mono);color:var(--accent);font-size:14px;font-weight:700}
+  .step .b{flex:1}
+  .step .b b{display:block;margin-bottom:2px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14.5px}
+  th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  td code{font-size:.82em}
+  .toc{font-family:var(--mono);font-size:13px;color:var(--dim);display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:18px}
+  .toc a{color:var(--dim);text-decoration:none;border-bottom:1px dotted var(--line)}
+  .toc a:hover{color:var(--accent)}
+  .mono{font-family:var(--mono);font-size:13px}
+  .filename{font-family:var(--mono);font-size:13px;color:var(--good)}
+  hr.soft{border:none;border-top:1px solid var(--line);margin:34px 0}
+  .keyidea{background:linear-gradient(180deg,#16202e,#121821);border:1px solid #25405e;border-radius:14px;padding:24px 26px;margin:24px 0}
+  .keyidea .kicker{color:var(--good)}
+  /* timeline */
+  .tl{position:relative;margin:26px 0 8px;padding-left:30px}
+  .tl::before{content:"";position:absolute;left:9px;top:6px;bottom:6px;width:2px;background:var(--line)}
+  .era{position:relative;margin:0 0 22px}
+  .era .dot{position:absolute;left:-29px;top:3px;width:18px;height:18px;border-radius:50%;background:var(--panel2);border:2px solid var(--accent)}
+  .era.bad .dot{border-color:var(--bad)} .era.good .dot{border-color:var(--good)}
+  .era h4{margin:0 0 2px;font-size:16px}
+  .era .when{font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .era p{margin:6px 0 0;color:var(--dim);font-size:14.5px}
+  footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="kicker">MemCP · Internal architecture brief</p>
+  <h1>How MemCP went from corrupting itself to lossless cross-machine sync</h1>
+  <p class="lede">Two machines share one memory store through Google Drive. Getting that right took four moves —
+  from "both machines scribble on the same file" (which literally corrupted the database, twice) to a design where
+  concurrent writes can't lose a byte. This is the whole arc, in plain terms.</p>
+  <div class="meta">
+    <span><b>Failure modes solved</b> file corruption · lost rows</span>
+    <span><b>Guarantee now</b> no insight ever permanently lost</span>
+    <span><b>Status</b> v2 live on both machines · gen 38</span>
+  </div>
+  <div class="toc">
+    <a href="#arc">The four eras</a>
+    <a href="#corruption">1 · The corruption</a>
+    <a href="#lock">2 · Lock &amp; go local</a>
+    <a href="#idea">3 · The key idea</a>
+    <a href="#merge">4 · No-loss merge</a>
+    <a href="#contention">5 · Contention map</a>
+    <a href="#state">6 · Where it stands</a>
+  </div>
+</header>
+
+<!-- ===== ARC ===== -->
+<h2 id="arc"><span class="num">00</span>The four eras, at a glance</h2>
+<p>Each era fixed the failure the previous one exposed. The first two are about <b>resource contention</b>
+(two writers colliding on shared storage). The last two are about <b>not losing data</b> once contention is survivable.</p>
+<div class="tl">
+  <div class="era bad"><div class="dot"></div>
+    <h4>1 — One shared SQLite file on Drive</h4>
+    <span class="when">original setup</span>
+    <p>Both machines pointed at the <i>same</i> <code>graph.db</code> inside the Drive folder and wrote to it at once. Google Drive sheared the file mid-write → <b>"database disk image is malformed."</b> Corrupted twice (May 6 &amp; Jun 1).</p>
+  </div>
+  <div class="era"><div class="dot"></div>
+    <h4>2 — Write-lock + take the DB off Drive</h4>
+    <span class="when">commit 9a6c51d, then the snapshot move</span>
+    <p>A write-grained lock serializes commits; DELETE journal mode kills the sidecar files; and the live DB moves to <b>local disk</b>, with only a <i>snapshot</i> riding Drive. Corruption class eliminated.</p>
+  </div>
+  <div class="era"><div class="dot"></div>
+    <h4>3 — Local-DB monotonicity (the key idea)</h4>
+    <span class="when">no-loss redesign §1</span>
+    <p>The snapshot layer still had a <i>different</i> bug — whole-file last-writer-wins lost rows. The fix rests on one rule: a pull only ever <b>adds</b> to the local DB; it never deletes to match the snapshot.</p>
+  </div>
+  <div class="era good"><div class="dot"></div>
+    <h4>4 — Union-on-pull + immutable blobs</h4>
+    <span class="when">Steps 0–9 + Step 6, shipped</span>
+    <p>Pull becomes an additive merge; push publishes append-only, uniquely-named snapshot files behind a pointer. Concurrent publishers can't overwrite each other. Verified no-loss end to end.</p>
+  </div>
+</div>
+
+<!-- ===== 1 CORRUPTION ===== -->
+<h2 id="corruption"><span class="num">01</span>Where it started: two machines, one file, corruption</h2>
+<p>The original design was the obvious one: put <code>graph.db</code> in the Google Drive folder, point both
+machines' <code>MEMCP_DATA_DIR</code> at it, and let Drive sync the file. One canonical store, no divergence.
+The problem is that <b>a synced cloud folder is not a real shared filesystem.</b></p>
+
+<div class="card tight">
+<svg viewBox="0 0 900 250" role="img" aria-label="Concurrent writes to one Drive-hosted SQLite file corrupt it">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#ff7a85"/></marker>
+  </defs>
+  <rect x="30" y="40" width="180" height="80" rx="10" fill="#1b1f27" stroke="#262b35"/>
+  <text x="120" y="70" text-anchor="middle" fill="#e7e9ee" font-family="var(--mono)" font-size="13">Mac mini</text>
+  <text x="120" y="94" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="11">writing…</text>
+
+  <rect x="690" y="40" width="180" height="80" rx="10" fill="#1b1f27" stroke="#262b35"/>
+  <text x="780" y="70" text-anchor="middle" fill="#e7e9ee" font-family="var(--mono)" font-size="13">Laptop</text>
+  <text x="780" y="94" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="11">writing…</text>
+
+  <rect x="360" y="34" width="180" height="92" rx="10" fill="#14171d" stroke="#4a2c30"/>
+  <text x="450" y="60" text-anchor="middle" fill="#ff7a85" font-family="var(--mono)" font-size="13">graph.db</text>
+  <text x="450" y="82" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="11">single file</text>
+  <text x="450" y="102" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="11">on Google Drive</text>
+
+  <line x1="210" y1="80" x2="356" y2="80" stroke="#ff7a85" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="690" y1="80" x2="544" y2="80" stroke="#ff7a85" stroke-width="2" marker-end="url(#ar)"/>
+
+  <text x="450" y="172" text-anchor="middle" fill="#ff7a85" font-family="var(--mono)" font-size="13">Drive copies the file asynchronously while both write →</text>
+  <text x="450" y="196" text-anchor="middle" fill="#ff7a85" font-family="var(--mono)" font-size="13">a b-tree page is sheared mid-flight → DB malformed.</text>
+  <text x="450" y="224" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="12">SQLite's own locks don't work over Drive — they assume a real local filesystem.</text>
+</svg>
+<p class="figcap">The original contention bug: corruption, not lost rows. It hit twice and took every operation down with it.</p>
+</div>
+
+<div class="grid2">
+  <div class="card tight">
+    <span class="tag bad">what actually happened</span>
+    <h3 style="margin-top:10px">Two corruption incidents</h3>
+    <p>On 2026-05-06 and again 2026-06-01, <code>graph.db</code> threw <i>"database disk image is malformed"</i>
+    on <b>every</b> operation — even <code>ping</code>. Integrity check showed a torn b-tree page. Recovery via
+    SQLite's <code>.recover</code> got back ~99.9% (lost 2 low-value rows the second time). The corrupt originals
+    still sit in Drive as <span class="filename">graph.db.malformed-2026…</span>.</p>
+  </div>
+  <div class="card tight">
+    <span class="tag bad">why it was inevitable</span>
+    <h3 style="margin-top:10px">Three compounding hazards</h3>
+    <ul class="clean">
+      <li><b>FUSE sync tears pages.</b> Drive copies the file in the background; a write in progress becomes a half-synced file on the other side.</li>
+      <li><b>Locks don't cross Drive.</b> SQLite's advisory locks assume a real FS; on Drive they're meaningless.</li>
+      <li><b>Even reads write.</b> A <code>recall</code> bumps an access counter — so just <i>reading</i> on both machines was concurrent writing.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ===== 2 LOCK + LOCAL ===== -->
+<h2 id="lock"><span class="num">02</span>Stop the contention: lock the writes, then take the DB off Drive</h2>
+<p>This came in two moves. The first made concurrent writes <i>survivable</i>; the second made the dangerous
+sharing <i>impossible</i>.</p>
+
+<h3>Move A — a write-grained lock + DELETE journal</h3>
+<p>The instinct "give each machine a turn for the whole session" was wrong — it'd force the second window
+read-only and defeat the point of running two sessions at once. Instead the lock is <b>write-grained</b>: grab it
+right before a save, release right after. <b>Reads never lock.</b> Concurrent sessions coexist; only the
+millisecond-long commits queue.</p>
+<div class="card tight">
+  <div class="grid2">
+    <div>
+      <span class="tag good">rock-solid tier</span>
+      <p style="margin-top:10px"><b>Local <code>flock</code></b> on a lockfile kept on <i>local</i> disk (never the synced mount, where flock is meaningless). Serializes every writer process on one machine instantly and reliably.</p>
+    </div>
+    <div>
+      <span class="tag warn">best-effort tier</span>
+      <p style="margin-top:10px"><b>Cross-machine lease</b> — a <code>.writer.lock</code> next to the DB on the synced mount holding <code>{host, pid, heartbeat}</code>. Bounded by Drive's latency, it catches "the other machine is actively writing"; a crashed holder's stale lease is reclaimed by TTL.</p>
+    </div>
+  </div>
+  <p style="margin:14px 0 0;color:var(--dim);font-size:14px">Plus a switch to <b>DELETE journal mode</b> — SQLite writes the main file directly instead of leaving <code>-wal</code>/<code>-shm</code> sidecars that Drive would sync separately and tear. The lock is also <b>fail-open</b>: any error in the locking machinery logs and proceeds rather than ever blocking or dropping a save.</p>
+</div>
+
+<h3>Move B — the live DB goes local; only a snapshot rides Drive</h3>
+<p>A lock makes a shared file safer, but two machines writing one file over Drive is still fragile, and Drive
+sync-lag still leaves a "B overwrites A before A's last write synced down" window. The clean cure is to stop
+sharing the live file at all:</p>
+<div class="card tight">
+<svg viewBox="0 0 900 230" role="img" aria-label="Live DB local, snapshot on Drive">
+  <defs><marker id="arb" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#6ea8fe"/></marker></defs>
+  <rect x="20" y="60" width="190" height="100" rx="10" fill="#1b1f27" stroke="#2c4a3c"/>
+  <text x="115" y="86" text-anchor="middle" fill="#5ad19a" font-family="var(--mono)" font-size="12">Mac mini — LOCAL</text>
+  <text x="115" y="110" text-anchor="middle" fill="#e7e9ee" font-family="var(--mono)" font-size="11">~/.memcp-local/</text>
+  <text x="115" y="128" text-anchor="middle" fill="#e7e9ee" font-family="var(--mono)" font-size="11">graph.db (live)</text>
+  <text x="115" y="148" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="10">SQLite never touches Drive</text>
+
+  <rect x="690" y="60" width="190" height="100" rx="10" fill="#1b1f27" stroke="#2c4a3c"/>
+  <text x="785" y="86" text-anchor="middle" fill="#5ad19a" font-family="var(--mono)" font-size="12">Laptop — LOCAL</text>
+  <text x="785" y="110" text-anchor="middle" fill="#e7e9ee" font-family="var(--mono)" font-size="11">~/.memcp-local/</text>
+  <text x="785" y="128" text-anchor="middle" fill="#e7e9ee" font-family="var(--mono)" font-size="11">graph.db (live)</text>
+  <text x="785" y="148" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="10">its own copy</text>
+
+  <rect x="360" y="55" width="180" height="92" rx="10" fill="#16202e" stroke="#25405e"/>
+  <text x="450" y="83" text-anchor="middle" fill="#6ea8fe" font-family="var(--mono)" font-size="12">Drive snapshot</text>
+  <text x="450" y="105" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="11">a published copy,</text>
+  <text x="450" y="124" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="11">not the live file</text>
+
+  <line x1="210" y1="100" x2="356" y2="100" stroke="#6ea8fe" stroke-width="2" marker-end="url(#arb)"/>
+  <line x1="540" y1="110" x2="686" y2="110" stroke="#6ea8fe" stroke-width="2" marker-end="url(#arb)"/>
+  <text x="283" y="90" text-anchor="middle" fill="#6ea8fe" font-size="10" font-family="var(--mono)">push</text>
+  <text x="613" y="100" text-anchor="middle" fill="#6ea8fe" font-size="10" font-family="var(--mono)">pull</text>
+  <text x="450" y="190" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="12">No machine ever opens SQLite on Drive again → the corruption class is gone for good.</text>
+</svg>
+</div>
+<div class="callout good">After Move B, the only thing crossing Drive is a <b>snapshot file</b> — a publish/subscribe copy — not the
+database the engine reads and writes. That kills corruption entirely. But it opens the door to a <i>second,
+gentler</i> problem: how do two snapshots merge without losing rows? That's eras 3 and 4.</p>
+
+<!-- ===== 3 KEY IDEA ===== -->
+<h2 id="idea"><span class="num">03</span>The key idea behind no-loss merge</h2>
+<p>With the live DB local, the snapshot layer still shipped a data-loss bug: <code>push()</code> overwrote the
+whole Drive snapshot with the local file and minted a higher version number — no row-level merge. A stale machine
+(even doing a read) could republish its older DB over the snapshot and erase the other machine's new insights.
+The fix follows from one rule:</p>
+
+<div class="keyidea">
+  <p class="kicker">Local-DB monotonicity</p>
+  <p style="font-size:19px;margin:6px 0 10px"><b>A pull only ever <span style="color:var(--good)">adds</span> rows to the local DB. It never deletes a local row to match the snapshot.</b></p>
+  <p style="margin:0;color:var(--dim)">Add "every session pulls, then pushes," and the guarantee is automatic:
+  if a row ever drops out of the shared snapshot during a race, it still lives on the machine that created it —
+  and re-publishes on that machine's next push. Nothing is gone; it just re-propagates a cycle later.</p>
+</div>
+<p>This is why the heavy machinery in era 4 (immutable files, pointers, hashes) is a <b>robustness layer</b>, not
+a correctness requirement. Correctness rests entirely on the rule above. Even a badly raced publish can't lose
+data — it can only delay convergence.</p>
+<div class="callout">One honest trade-off it buys: because a pull keeps the local copy of a row it already has, a
+<b>re-tag or importance change on one machine doesn't propagate</b> to the other. Both copies of the <i>content</i>
+always survive — they can just disagree on metadata. Accepted: those are internal classification fields, not your memories.</p>
+
+<!-- ===== 4 MERGE ===== -->
+<h2 id="merge"><span class="num">04</span>The no-loss merge, concretely</h2>
+
+<h3>Pull = the only place a merge happens (additive union)</h3>
+<div class="card tight">
+<svg viewBox="0 0 900 210" role="img" aria-label="Additive union on pull">
+  <defs><marker id="arb2" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#6ea8fe"/></marker></defs>
+  <rect x="30" y="35" width="220" height="130" rx="10" fill="#1b1f27" stroke="#262b35"/>
+  <text x="140" y="30" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="11">LOCAL graph.db</text>
+  <text x="140" y="72" text-anchor="middle" fill="#e7e9ee" font-family="var(--mono)" font-size="12">rows 1–480</text>
+  <text x="140" y="98" text-anchor="middle" fill="#5ad19a" font-family="var(--mono)" font-size="12">+ my new 481–490</text>
+  <text x="140" y="138" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="11">only ever grows</text>
+  <rect x="650" y="35" width="220" height="130" rx="10" fill="#14171d" stroke="#25405e"/>
+  <text x="760" y="30" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="11">DRIVE snapshot</text>
+  <text x="760" y="72" text-anchor="middle" fill="#e7e9ee" font-family="var(--mono)" font-size="12">rows 1–500</text>
+  <text x="760" y="98" text-anchor="middle" fill="#6ea8fe" font-family="var(--mono)" font-size="12">peer's 491–500</text>
+  <text x="760" y="138" text-anchor="middle" fill="#9aa3b2" font-family="var(--mono)" font-size="11">+ tombstones</text>
+  <line x1="650" y1="100" x2="254" y2="100" stroke="#6ea8fe" stroke-width="2" marker-end="url(#arb2)"/>
+  <text x="452" y="86" text-anchor="middle" fill="#6ea8fe" font-size="12" font-family="var(--mono)">INSERT OR IGNORE</text>
+  <text x="452" y="124" text-anchor="middle" fill="#9aa3b2" font-size="11" font-family="var(--mono)">copy rows we lack · keep rows we have · apply deletes last</text>
+</svg>
+</div>
+<ul class="clean">
+  <li><code>INSERT OR IGNORE</code> pulls in any row we don't have; existing ids keep our copy.</li>
+  <li>The <b>tombstones</b> (delete log) union in too, then apply as a <b>deny-set</b> — so "present in snapshot <i>and</i> tombstoned" resolves to deleted on every machine, whatever the arrival order.</li>
+  <li>A foreign-key check runs before commit; a bad merge rolls back instead of corrupting the DB.</li>
+</ul>
+
+<h3>Push = publish a superset, never overwrite</h3>
+<div class="step"><div class="n">1</div><div class="b"><b>Catch up first</b> — if the snapshot moved ahead, fold it in so local is a true superset.</div></div>
+<div class="step"><div class="n">2</div><div class="b"><b>Write a globally-unique, immutable blob</b> — <span class="filename">graph.snapshot.&lt;gen&gt;.&lt;host&gt;.&lt;rand&gt;.db</span>. Two machines can never pick the same name, so neither can clobber the other.</div></div>
+<div class="step"><div class="n">3</div><div class="b"><b>Flip a tiny pointer</b> — <span class="filename">graph.snapshot.ptr.json</span> names the current blob + its content hash. Readers follow the pointer.</div></div>
+<div class="step"><div class="n">4</div><div class="b"><b>Self-verify on read</b> — generation + hash live both inside the blob and in the pointer; a torn or half-synced blob is rejected, not adopted.</div></div>
+
+<div class="card tight" style="margin-top:22px">
+<svg viewBox="0 0 900 220" role="img" aria-label="Immutable blobs plus pointer">
+  <defs><marker id="arb3" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#6ea8fe"/></marker></defs>
+  <rect x="40" y="30" width="150" height="50" rx="9" fill="#1b1f27" stroke="#262b35"/>
+  <text x="115" y="52" text-anchor="middle" fill="#9aa3b2" font-size="11" font-family="var(--mono)">…41.mini.a3.db</text>
+  <text x="115" y="70" text-anchor="middle" fill="#5a6172" font-size="10" font-family="var(--mono)">old · retained</text>
+  <rect x="40" y="92" width="150" height="50" rx="9" fill="#1b1f27" stroke="#2c4a3c"/>
+  <text x="115" y="114" text-anchor="middle" fill="#5ad19a" font-size="11" font-family="var(--mono)">…42.mini.7f.db</text>
+  <text x="115" y="132" text-anchor="middle" fill="#5a6172" font-size="10" font-family="var(--mono)">current</text>
+  <rect x="40" y="154" width="150" height="42" rx="9" fill="#1b1f27" stroke="#4a4029"/>
+  <text x="115" y="180" text-anchor="middle" fill="#f5c065" font-size="11" font-family="var(--mono)">…42.lap.c1.db</text>
+  <rect x="360" y="90" width="170" height="64" rx="10" fill="#16202e" stroke="#25405e"/>
+  <text x="445" y="116" text-anchor="middle" fill="#6ea8fe" font-size="12" font-family="var(--mono)">ptr.json</text>
+  <text x="445" y="138" text-anchor="middle" fill="#9aa3b2" font-size="11" font-family="var(--mono)">→ …42.mini.7f</text>
+  <line x1="190" y1="120" x2="356" y2="120" stroke="#6ea8fe" stroke-width="2" marker-end="url(#arb3)"/>
+  <rect x="700" y="90" width="160" height="64" rx="10" fill="#1b1f27" stroke="#262b35"/>
+  <text x="780" y="116" text-anchor="middle" fill="#e7e9ee" font-size="12" font-family="var(--mono)">reader</text>
+  <text x="780" y="138" text-anchor="middle" fill="#9aa3b2" font-size="11" font-family="var(--mono)">follows pointer</text>
+  <line x1="530" y1="122" x2="696" y2="122" stroke="#6ea8fe" stroke-width="2" marker-end="url(#arb3)"/>
+  <text x="445" y="186" text-anchor="middle" fill="#9aa3b2" font-size="11" font-family="var(--mono)">both machines published "gen 42" at once → both files survive; the loser is merged next pull.</text>
+</svg>
+<p class="figcap">Append-only blobs + a one-line pointer. A publish race can no longer destroy a write — it just leaves an extra file.</p>
+</div>
+
+<!-- ===== 5 CONTENTION MAP ===== -->
+<h2 id="contention"><span class="num">05</span>The full contention map</h2>
+<p>"Contention" = more than one writer touching shared state at once. Across the four eras, four distinct
+collisions were each neutralized. None can now lose data <i>or</i> corrupt the store.</p>
+<table>
+  <thead><tr><th style="width:22%">Collision</th><th style="width:40%">What used to happen</th><th>How it's handled now</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>Two machines<br>on one DB file</b><br><span class="tag bad">corruption</span></td>
+      <td>Both wrote the same <code>graph.db</code> on Drive; FUSE sync sheared a b-tree page → file malformed, everything down.</td>
+      <td>The live DB lives on <b>local disk</b>; only a snapshot crosses Drive. SQLite never opens a Drive file, so the corruption is structurally impossible.</td>
+    </tr>
+    <tr>
+      <td><b>Two windows,<br>one machine</b><br><span class="tag">same-machine</span></td>
+      <td>Startup swapped the live file out from under a second open process; its later writes vanished.</td>
+      <td>A local <code>flock</code> wraps the whole pull + merge; a process detects the swapped file and reopens. The two windows' commits just queue for a few ms.</td>
+    </tr>
+    <tr>
+      <td><b>Two machines<br>publish at once</b><br><span class="tag">cross-machine</span></td>
+      <td>Both overwrote the single snapshot file; last writer won, erasing the other's rows.</td>
+      <td><b>Immutable, uniquely-named blobs.</b> Concurrent publishers write different filenames; both survive, the pointer names one, the other merges next pull.</td>
+    </tr>
+    <tr>
+      <td><b>Reads fighting<br>writes</b><br><span class="tag">quiescence</span></td>
+      <td>A read-only recall marked the DB dirty and force-pushed, so a stale reader could overwrite a fresh writer.</td>
+      <td>A <code>durable_dirty</code> flag is set <b>only</b> by real content changes. Recalls and counter-bumps publish nothing — reads stopped contending entirely.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Why there's no global lock for the cross-machine case</h3>
+<p>A Drive-synced lockfile rides the very sync latency it's trying to police, and a crashed holder strands the
+system — so the cross-machine lease is deliberately <b>best-effort only</b>. The real guarantee comes from making
+overwrites impossible (immutable blobs) and the local DB monotonic. You don't prevent concurrent writes — you
+<b>let them both happen and merge.</b> That's the elegant part, and it's what Jeff's "no bespoke locking scheme"
+constraint pushed toward.</p>
+<div class="callout good"><b>The throughline:</b> contention is made <i>safe by construction</i>, not <i>prevented by
+coordination.</i> A lost race costs one extra merge cycle — never a memory, and never the database.</p>
+
+<h3>Backstops, for when a race still slips through</h3>
+<ul class="clean">
+  <li><b>Tombstones</b> — every delete writes an id+timestamp record, kept forever, that travels in the union and re-kills the row everywhere (so a delete can't be silently resurrected by a stale peer).</li>
+  <li><b>Re-push outbox</b> — a machine re-publishes any of its own rows a peer hasn't echoed back yet, so a row is never stuck as a single copy.</li>
+  <li><b>Generation-aware GC</b> — old blobs are reaped only once every known machine has merged past them.</li>
+  <li><b>Format gate</b> — an older binary refuses to read or overwrite a newer-format snapshot, which is what makes a one-machine-at-a-time upgrade safe.</li>
+  <li><b>ingest_seq reindex</b> — merged-in foreign rows (which carry their origin's older date) are still indexed and searchable in the same session, instead of looking lost.</li>
+</ul>
+
+<!-- ===== 6 STATE ===== -->
+<h2 id="state"><span class="num">06</span>Where it stands right now</h2>
+<div class="grid2">
+  <div class="card tight">
+    <span class="tag good">live</span>
+    <h3 style="margin-top:10px">Everything is in effect</h3>
+    <p>Corruption fix (local DB + snapshot), write-lock, DELETE journal, the union/tombstone/quiescence no-loss
+    correctness — <b>and</b> the immutable-blob publish format — are all <b>shipped and running</b>. The
+    force-push-on-read clobber is fixed; a stray recall no longer overwrites anything.</p>
+  </div>
+  <div class="card tight">
+    <span class="tag good">flip complete</span>
+    <h3 style="margin-top:10px">v2 is on, both machines</h3>
+    <p><code>MEMCP_SNAPSHOT_IMMUTABLE=true</code> is set on both. Push writes the immutable
+    <code>&lt;gen&gt;.&lt;host&gt;.&lt;rand&gt;</code> blob behind a pointer — verified live in
+    <span class="filename">…/memcp/sync/</span>. The old single file remains only as the fail-closed beacon.</p>
+  </div>
+</div>
+<div class="card">
+<h3 style="margin-top:0">Verified state on Drive right now</h3>
+<div class="step"><div class="n">✓</div><div class="b"><b>Pointer</b> — <code>graph.snapshot.ptr.json</code>: generation 38, blob <span class="filename">graph.snapshot.38.Mac.9a675a47.db</span>, <code>format_version: 2</code>.</div></div>
+<div class="step"><div class="n">✓</div><div class="b"><b>Both hosts merged</b> — <code>graph.snapshot.merged.json</code> = <code>{"Mac": 38, "Jeffs-Mac-mini.local": 38}</code>. Both machines registered, both at the same generation.</div></div>
+<div class="step"><div class="n">✓</div><div class="b"><b>Architecture confirmed</b> — server runs with the live DB at <code>~/.memcp-local</code> and the snapshot at <code>…/My Drive/memcp/sync</code>. SQLite never opens a Drive file.</div></div>
+</div>
+<div class="callout good"><b>Bottom line:</b> all four eras are behind us and the v2 flip is <b>done</b>. Corruption is structurally
+impossible, reads can't clobber, and concurrent writes are lossless and won't overwrite each other. Current store:
+<b>73 insights · 2,708 edges · backend "graph" · snapshot generation 38.</b></p>
+
+<hr class="soft">
+<p class="mono" style="color:var(--dim)">Full mechanics &amp; the three rounds of adversarial review:
+<br><span style="color:#cdd6e6">docs/superpowers/specs/2026-06-01-no-loss-merge-sync-design.md</span>
+<br>Corruption runbook: MemCP insight <span style="color:#cdd6e6">fef23004</span> · Write-lock design: <span style="color:#cdd6e6">a3840c24</span></p>
+
+<footer>
+  MemCP internal architecture brief · corruption → write-lock → local-DB → no-loss merge · generated for Jeff · 2026-06-02 · self-contained, no external assets
+</footer>
+
+</div>
+</body>
+</html>

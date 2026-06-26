@@ -15,7 +15,38 @@ from pathlib import Path
 from typing import Any
 
 from memcp.config import get_config
-from memcp.core.fileutil import atomic_write_json, locked_read_json
+from memcp.core.fileutil import atomic_write_json, locked_read_json, locked_update_json
+
+# Common parent directory names + system dirs that should never become project
+# names if they happen to be the cwd basename or the .git-containing dirname.
+# Without this, e.g. `cd ~/projects && claude` or running from `/Users/<USER>`
+# silently registers "projects" / the username as a ghost project.
+_BLOCKED_PROJECT_NAMES = frozenset(
+    {
+        "projects",
+        "src",
+        "tmp",
+        "default",
+        "desktop",
+        "documents",
+        "home",
+        "Users",
+        "var",
+        "etc",
+        "opt",
+        "lib",
+        "bin",
+    }
+)
+
+
+def _is_blocked_project_name(name: str) -> bool:
+    """True if *name* shouldn't be used as an auto-detected project name."""
+    if name in _BLOCKED_PROJECT_NAMES:
+        return True
+    user = os.environ.get("USER", "").strip()
+    return bool(user) and name == user
+
 
 # ── Project Detection ─────────────────────────────────────────────────
 
@@ -24,12 +55,16 @@ def detect_project(cwd: str = "") -> str:
     """Auto-detect project from environment.
 
     Priority:
-        1. MEMCP_PROJECT env var
+        1. MEMCP_PROJECT env var (explicit user choice, no blocklist)
         2. Git repo name (walk up from cwd to find .git, use dirname)
         3. cwd basename
         4. "default"
+
+    Git-derived names and cwd basenames are filtered through
+    ``_BLOCKED_PROJECT_NAMES`` so common parent dirs and the active username
+    don't become ghost project names.
     """
-    # 1. Env var
+    # 1. Env var (explicit — bypasses blocklist)
     env_project = os.environ.get("MEMCP_PROJECT", "").strip()
     if env_project:
         return env_project
@@ -37,12 +72,12 @@ def detect_project(cwd: str = "") -> str:
     # 2. Git repo name
     start = Path(cwd).resolve() if cwd else Path.cwd()
     git_name = _find_git_project(start)
-    if git_name:
+    if git_name and not _is_blocked_project_name(git_name):
         return git_name
 
     # 3. cwd basename
     basename = start.name
-    if basename and basename != "/":
+    if basename and basename != "/" and not _is_blocked_project_name(basename):
         return basename
 
     # 4. Fallback
@@ -104,10 +139,23 @@ def register_session(session_id: str, project: str, **kwargs: Any) -> dict[str, 
         "summary": kwargs.get("summary", ""),
     }
 
-    sessions = _load_sessions()
-    sessions["sessions"][session_id] = session_entry
-    sessions["current_session"] = session_id
-    _save_sessions(sessions)
+    # Read-modify-write sessions.json under one lock so two concurrent
+    # registrations can't each read the old file and drop the other's session
+    # (the same TOCTOU as _set_state, P7).
+    def _add_session(data: Any) -> dict[str, Any]:
+        if not isinstance(data, dict):
+            data = {}
+        data.setdefault("sessions", {})
+        data["sessions"][session_id] = session_entry
+        data["current_session"] = session_id
+        return data
+
+    config = get_config()
+    locked_update_json(
+        config.sessions_path,
+        _add_session,
+        default={"current_session": "", "sessions": {}},
+    )
 
     # Update state.json
     _set_state({"current_project": project, "current_session": session_id})
@@ -180,7 +228,7 @@ def get_current_project() -> str:
 # ── Project Listing ───────────────────────────────────────────────────
 
 
-def list_projects() -> list[dict[str, Any]]:
+def list_projects(include_empty: bool = False) -> list[dict[str, Any]]:
     """List all known projects with aggregate stats.
 
     Scans graph.db nodes (DISTINCT project), contexts meta.json (DISTINCT
@@ -188,6 +236,12 @@ def list_projects() -> list[dict[str, Any]]:
 
     Returns per project: name, insight_count, context_count, session_count,
     last_activity.
+
+    By default, projects with zero insights AND zero contexts are filtered
+    out — they're session-only ghost projects (typically from running memcp
+    in a directory whose basename slipped past the auto-detect blocklist
+    before the projects/USER/etc. filter was added). Pass
+    ``include_empty=True`` to see them for debugging or migration.
     """
     config = get_config()
     projects: dict[str, dict[str, Any]] = {}
@@ -264,6 +318,8 @@ def list_projects() -> list[dict[str, Any]]:
             proj["last_activity"] = last
 
     result = list(projects.values())
+    if not include_empty:
+        result = [p for p in result if p["insight_count"] > 0 or p["context_count"] > 0]
     result.sort(key=lambda x: x.get("last_activity", ""), reverse=True)
     return result
 
@@ -358,8 +414,17 @@ def _get_state() -> dict[str, Any]:
 
 
 def _set_state(updates: dict[str, Any]) -> None:
-    """Merge-update fields in state.json atomically."""
+    """Merge-update fields in state.json under one lock (TOCTOU-safe).
+
+    The read-modify-write is a single LOCK_EX critical section, so concurrent
+    updaters can't each read the old file and clobber the other's update (P7).
+    """
     config = get_config()
-    state = _get_state()
-    state.update(updates)
-    atomic_write_json(config.state_path, state)
+
+    def _merge(state: Any) -> dict[str, Any]:
+        if not isinstance(state, dict):
+            state = {}
+        state.update(updates)
+        return state
+
+    locked_update_json(config.state_path, _merge, default={})
