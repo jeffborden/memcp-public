@@ -30,6 +30,7 @@ from memcp.server import (
     memcp_search,
     memcp_sessions,
     memcp_status,
+    memcp_topic,
     memcp_update,
 )
 
@@ -379,3 +380,55 @@ class TestMemcpGrep:
         result = json.loads(await memcp_grep(pattern="["))
         assert result["status"] == "error"
         assert "Invalid regex" in result["message"]
+
+
+class TestMemcpTopic:
+    """Server-layer tests for the memcp_topic tool (JSON envelope + arg parsing)."""
+
+    async def test_compiled_truth_and_timeline_envelope(self, isolated_data_dir: Path) -> None:
+        await memcp_remember(
+            content="deploy runbook — current",
+            category="general",
+            tags="kind:kb,topic:runbook,entry:compiled",
+        )
+        await memcp_remember(
+            content="noted a rollback step after an incident",
+            category="general",
+            tags="kind:kb,topic:runbook,entry:log",
+        )
+        result = json.loads(await memcp_topic(slug="runbook"))
+        assert result["status"] == "ok"
+        assert result["slug"] == "runbook"
+        assert result["count"] == 2
+        # A single compiled row is unambiguously the current head, no supersedes needed.
+        assert result["current"] is not None
+        assert result["current"]["entry_type"] == "compiled"
+        assert result["current"]["content"] == "deploy runbook — current"
+        assert result["warnings"] == []
+
+    async def test_unknown_slug_ok_empty(self, isolated_data_dir: Path) -> None:
+        await memcp_remember(content="unrelated", category="general", tags="kind:kb")
+        result = json.loads(await memcp_topic(slug="no-such-topic"))
+        assert result["status"] == "ok"
+        assert result["current"] is None
+        assert result["count"] == 0
+        assert result["timeline"] == []
+        assert result["warnings"] == []
+
+    async def test_missing_supersedes_warns(self, isolated_data_dir: Path) -> None:
+        await memcp_remember(
+            content="compiled v1", category="general", tags="kind:kb,topic:t,entry:compiled"
+        )
+        await memcp_remember(
+            content="compiled v2 with no link",
+            category="general",
+            tags="kind:kb,topic:t,entry:compiled",
+        )
+        result = json.loads(await memcp_topic(slug="t"))
+        assert result["status"] == "ok"
+        assert result["warnings"]  # non-empty — second compiled head cites no supersedes
+
+    async def test_empty_slug_is_structured_error(self, isolated_data_dir: Path) -> None:
+        result = json.loads(await memcp_topic(slug="  "))
+        assert result["status"] == "error"
+        assert "slug" in result["message"]

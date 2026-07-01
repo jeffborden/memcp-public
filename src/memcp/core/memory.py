@@ -952,6 +952,148 @@ def _grep_fetch_rows(
     return rows
 
 
+# ── Content versioning: "compiled truth + timeline" over a topic: chain ──
+#
+# A "living doc" is a topic, identified by a stable ``topic:<slug>`` tag, whose
+# updates are ordinary new-id ``remember()`` rows (never in-place content edits) —
+# so the pattern converges cross-machine under snapshot_sync's union merge by
+# construction (SPEC-content-versioning.md §2.2). Each row is typed
+# ``entry:compiled`` (a full current-understanding restatement) or ``entry:log``
+# (a dated evidence/correction append); a compiled row cites the prior compiled
+# head with ``supersedes:<id8>``. This reader adds no storage and mirrors grep's
+# additive, read-only posture — it derives the "current" view on read.
+
+_TOPIC_PREVIEW_CHARS = 200
+
+
+def _entry_type(tags: list[str]) -> str | None:
+    """Classify a topic row from its tags: 'compiled', 'log', or None (untyped)."""
+    if "entry:compiled" in tags:
+        return "compiled"
+    if "entry:log" in tags:
+        return "log"
+    return None
+
+
+def _supersedes_value(tags: list[str]) -> str | None:
+    """Return the id-prefix a compiled row claims to supersede, or None.
+
+    A bare or whitespace-only ``supersedes:`` tag normalizes to None so the chain
+    guard treats it as a MISSING link (an empty prefix would otherwise match every
+    id via ``startswith("")`` and silently pass — the one shape the guard exists to
+    catch)."""
+    for tag in tags:
+        if tag.startswith("supersedes:"):
+            return tag[len("supersedes:") :].strip() or None
+    return None
+
+
+def topic(
+    slug: str,
+    project: str = "",
+    include_archived: bool = False,
+) -> dict[str, Any]:
+    """Render a topic's "compiled truth + timeline" from its append-only rows.
+
+    Given a ``topic:<slug>`` tag, returns the latest ``entry:compiled`` row as
+    ``current`` (with full content, so the compiled truth renders in place) and
+    every row for the topic as a chronological ``timeline`` (ascending by
+    ``(created_at, id)``) — the gbrain shape. ``warnings`` flags a compiled head
+    whose ``supersedes:`` link is missing or points at the wrong prior compiled
+    row (the one behavioral gap the design can only detect, not prevent).
+
+    Slug match is **exact tag membership** (``topic:demo`` never matches
+    ``topic:demo-extended``). ``project`` scopes to one project (so the same slug
+    in two projects doesn't merge); ``include_archived`` mirrors grep. An unknown
+    slug returns empties, not an error. ADDITIVE — no new storage, no sync surface,
+    no schema change; reads through the same nodes-table path as grep/get_insight.
+
+    Returns ``{slug, current, timeline, warnings}`` where ``current`` is a full
+    insight dict or None, ``timeline`` is a list of lightweight entry dicts
+    (``id``/``entry_type``/``created_at``/``tags``/``supersedes``/``preview``),
+    and ``warnings`` is a list of strings.
+
+    Raises ValidationError on an empty slug.
+    """
+    if not (slug or "").strip():
+        raise ValidationError("topic requires a non-empty slug")
+    slug = slug.strip()
+    topic_tag = f"topic:{slug}"
+
+    rows = _grep_fetch_rows(project, "", "", include_archived)
+
+    entries: list[tuple[dict[str, Any], list[str]]] = []
+    for row in rows:
+        row_tags = _as_str_list(row.get("tags"))
+        if topic_tag in row_tags:
+            entries.append((row, row_tags))
+
+    entries.sort(key=lambda rt: (rt[0].get("created_at") or "", rt[0]["id"]))
+
+    timeline: list[dict[str, Any]] = []
+    for row, row_tags in entries:
+        summary = (row.get("summary") or "").strip()
+        content = row.get("content") or ""
+        preview = summary or (
+            content[:_TOPIC_PREVIEW_CHARS] + ("…" if len(content) > _TOPIC_PREVIEW_CHARS else "")
+        )
+        timeline.append(
+            {
+                "id": row["id"],
+                "entry_type": _entry_type(row_tags),
+                "created_at": row.get("created_at"),
+                "tags": row_tags,
+                "supersedes": _supersedes_value(row_tags),
+                "preview": preview,
+            }
+        )
+
+    compiled = [(row, tags) for (row, tags) in entries if _entry_type(tags) == "compiled"]
+
+    current: dict[str, Any] | None = None
+    if compiled:
+        head_row, head_tags = compiled[-1]
+        current = {
+            "id": head_row["id"],
+            "category": head_row.get("category"),
+            "importance": head_row.get("importance"),
+            "project": head_row.get("project"),
+            "tags": head_tags,
+            "content": head_row.get("content") or "",
+            "summary": (head_row.get("summary") or "").strip(),
+            "created_at": head_row.get("created_at"),
+            "entry_type": "compiled",
+        }
+
+    # Validate the compiled chain: each compiled row after the first should cite
+    # the immediately-prior compiled head via supersedes:<id8>. A missing or
+    # mis-pointing link is greppable/detectable (SPEC §3, §4 "honest caveat").
+    warnings: list[str] = []
+    for i in range(1, len(compiled)):
+        row, row_tags = compiled[i]
+        prev_row, _ = compiled[i - 1]
+        head8 = str(row["id"])[:8]
+        prev8 = str(prev_row["id"])[:8]
+        supersedes = _supersedes_value(row_tags)
+        if supersedes is None:
+            warnings.append(
+                f"compiled entry {head8} has no supersedes: link "
+                f"(expected to supersede prior compiled head {prev8})"
+            )
+        elif not str(prev_row["id"]).startswith(supersedes):
+            warnings.append(
+                f"compiled entry {head8} has supersedes:{supersedes} which does not "
+                f"point to the prior compiled head {prev8}"
+            )
+
+    return {
+        "slug": slug,
+        "current": current,
+        "timeline": timeline,
+        "warnings": warnings,
+    }
+
+
 def memory_status(project: str = "", session: str = "") -> dict[str, Any]:
     """Return memory statistics.
 

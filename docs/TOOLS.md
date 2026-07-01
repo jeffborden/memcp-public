@@ -120,6 +120,48 @@ memcp_recall(scope="all")  # Cross-project search
 
 ---
 
+### memcp_topic
+
+```
+memcp_topic(
+    slug: str,
+    project: str = "",
+    include_archived: bool = False,
+) → str
+```
+
+Render a **living doc** as "compiled truth on top + chronological timeline below" (the gbrain shape), read-only, from its `topic:<slug>` chain. Additive — no new storage, no sync surface, no schema change; same posture as `memcp_grep`.
+
+**The content-versioning convention it reads.** A living doc (e.g. a runbook, a release-notes page, an architecture-state note) is a *topic* whose updates are ordinary new-id `memcp_remember()` saves — never in-place content edits, which don't converge cross-machine under the snapshot union merge. Each row carries:
+
+| Tag | Meaning |
+|-----|---------|
+| `topic:<slug>` | Stable entrypoint; every row of the doc carries it. Look up the topic, never a remembered id — so you can't read a stale version by accident. |
+| `entry:compiled` | A full current-understanding restatement (the "compiled truth"). |
+| `entry:log` | A dated evidence/correction append (one fact/change). |
+| `supersedes:<id8>` | On a compiled row, the 8-char id-prefix of the prior compiled row. |
+
+Rationale and rejected alternatives (in-place `content` edits; local-only contexts): `docs/SPEC-content-versioning.md`.
+
+| Parameter | Description |
+|-----------|-------------|
+| `slug` | The topic slug — the value after `topic:` (e.g. `deploy-runbook`). Required. |
+| `project` | Scope to one project so the same slug in two projects doesn't merge. |
+| `include_archived` | Include archived rows (default `false`). |
+
+Returns `{status, slug, current, count, timeline, warnings}`:
+- `current` — the latest `entry:compiled` row with full content (or `null` if the topic has no compiled row yet).
+- `timeline` — every row for the topic, ascending by `(created_at, id)`, each a lightweight `{id, entry_type, created_at, tags, supersedes, preview}`. Pair with `memcp_get(id)` for a full entry.
+- `warnings` — flags a compiled head whose `supersedes:` link is missing or points at the wrong prior compiled row (the one behavioral gap the design can only *detect*, not prevent). An unknown slug returns empties, not an error.
+
+**Examples:**
+```
+memcp_topic("deploy-runbook")
+memcp_topic("architecture-state", project="memcp")
+```
+
+---
+
 ### memcp_forget
 
 ```
@@ -631,24 +673,25 @@ memcp_sessions(project="memcp", limit=5)  # Last 5 sessions for memcp project
 | 1 | `memcp_ping` | 1 | Health check + stats |
 | 2 | `memcp_remember` | 1 | Save insight (graph node + auto-edges) |
 | 3 | `memcp_recall` | 1 | Intent-aware graph retrieval |
-| 4 | `memcp_forget` | 1 | Remove insight + edges |
-| 5 | `memcp_status` | 1 | Memory statistics |
-| 6 | `memcp_load_context` | 2 | Store named context variable |
-| 7 | `memcp_inspect_context` | 2 | Metadata + preview without loading |
-| 8 | `memcp_get_context` | 2 | Read content or line slice |
-| 9 | `memcp_chunk_context` | 2 | Split into numbered chunks |
-| 10 | `memcp_peek_chunk` | 2 | Read a specific chunk |
-| 11 | `memcp_filter_context` | 2 | Regex filter within context |
-| 12 | `memcp_list_contexts` | 2 | List all variables |
-| 13 | `memcp_clear_context` | 2 | Delete variable |
-| 14 | `memcp_search` | 2 | Search across memory + contexts |
-| 15 | `memcp_related` | 3 | Graph traversal |
-| 16 | `memcp_graph_stats` | 3 | Graph statistics |
-| 17 | `memcp_reinforce` | 4 | Feedback — mark insight as helpful/misleading |
-| 18 | `memcp_consolidation_preview` | 4 | Preview similar insight groups (dry-run) |
-| 19 | `memcp_consolidate` | 4 | Merge similar insights into one |
-| 20 | `memcp_retention_preview` | 6 | Dry-run retention actions |
-| 21 | `memcp_retention_run` | 6 | Execute archive/purge |
-| 22 | `memcp_restore` | 6 | Restore from archive |
-| 23 | `memcp_projects` | 7 | List projects with stats |
-| 24 | `memcp_sessions` | 7 | Browse sessions |
+| 4 | `memcp_topic` | 1 | Living-doc "compiled truth + timeline" over a `topic:` chain |
+| 5 | `memcp_forget` | 1 | Remove insight + edges |
+| 6 | `memcp_status` | 1 | Memory statistics |
+| 7 | `memcp_load_context` | 2 | Store named context variable |
+| 8 | `memcp_inspect_context` | 2 | Metadata + preview without loading |
+| 9 | `memcp_get_context` | 2 | Read content or line slice |
+| 10 | `memcp_chunk_context` | 2 | Split into numbered chunks |
+| 11 | `memcp_peek_chunk` | 2 | Read a specific chunk |
+| 12 | `memcp_filter_context` | 2 | Regex filter within context |
+| 13 | `memcp_list_contexts` | 2 | List all variables |
+| 14 | `memcp_clear_context` | 2 | Delete variable |
+| 15 | `memcp_search` | 2 | Search across memory + contexts |
+| 16 | `memcp_related` | 3 | Graph traversal |
+| 17 | `memcp_graph_stats` | 3 | Graph statistics |
+| 18 | `memcp_reinforce` | 4 | Feedback — mark insight as helpful/misleading |
+| 19 | `memcp_consolidation_preview` | 4 | Preview similar insight groups (dry-run) |
+| 20 | `memcp_consolidate` | 4 | Merge similar insights into one |
+| 21 | `memcp_retention_preview` | 6 | Dry-run retention actions |
+| 22 | `memcp_retention_run` | 6 | Execute archive/purge |
+| 23 | `memcp_restore` | 6 | Restore from archive |
+| 24 | `memcp_projects` | 7 | List projects with stats |
+| 25 | `memcp_sessions` | 7 | Browse sessions |

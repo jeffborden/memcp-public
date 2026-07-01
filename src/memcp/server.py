@@ -31,6 +31,7 @@ from memcp.core.memory import (
     memory_status,
     recall,
     remember,
+    topic,
     update,
 )
 from memcp.tools.consolidation_tools import do_consolidate, do_consolidation_preview
@@ -416,6 +417,57 @@ async def memcp_grep(
 
     return json.dumps(
         {"status": "ok", "count": len(results), "results": results},
+        indent=2,
+        default=str,
+    )
+
+
+@_tool()
+async def memcp_topic(
+    slug: str,
+    project: str = "",
+    include_archived: bool = False,
+) -> str:
+    """Render a living doc's "compiled truth + timeline" from its topic: chain.
+
+    A "living doc" (e.g. a runbook, a release-notes page, an architecture-state
+    note) is a TOPIC identified by a stable ``topic:<slug>`` tag, updated by ordinary
+    memcp_remember() saves (never in-place edits — every write is a new-id INSERT,
+    the only operation that converges cross-machine). Each row is tagged
+    ``entry:compiled`` (a full current-understanding restatement) or ``entry:log``
+    (a dated evidence/correction append); a compiled row cites the prior compiled
+    head via ``supersedes:<id8>``.
+
+    Returns the latest compiled row as ``current`` (full content) on top and every
+    row for the topic as a chronological ``timeline`` below. ``warnings`` flags a
+    compiled head missing or mis-pointing its ``supersedes:`` link. Read-only and
+    additive (same posture as memcp_grep); pair with memcp_get(id) for a full
+    timeline entry. An unknown slug returns empties, not an error.
+
+    Args:
+        slug: The topic slug, i.e. the value after "topic:" (e.g. "deploy-runbook"). Required.
+        project: Scope to one project so the same slug in two projects doesn't merge.
+        include_archived: Include archived rows (default False).
+    """
+    try:
+        result = await run_sync(
+            topic,
+            slug=slug,
+            project=project,
+            include_archived=include_archived,
+        )
+    except (ValueError, MemCPError) as e:
+        return json.dumps({"status": "error", "message": str(e)}, indent=2)
+
+    return json.dumps(
+        {
+            "status": "ok",
+            "slug": result["slug"],
+            "current": result["current"],
+            "count": len(result["timeline"]),
+            "timeline": result["timeline"],
+            "warnings": result["warnings"],
+        },
         indent=2,
         default=str,
     )
