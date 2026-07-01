@@ -40,13 +40,14 @@ None of this changes how upstream behaves — it's all additive, and the origina
 **What this fork adds over upstream:**
 
 - **`memcp_grep` — exact / known-item retrieval.** Regex + tag-conjunction search over the insight store, no embeddings and no ranking — the right tool when you already know the ID, an exact phrase, or a tag combo. Complements semantic recall rather than replacing it.
+- **`memcp_topic` — living-doc content versioning.** A `topic:` / `entry:` / `supersedes:` tag convention over ordinary append-only saves, read back as "compiled truth on top + chronological timeline below." Lets a record that keeps changing live as a chain of new-id inserts (which converge cross-machine) instead of in-place content edits (which don't) — no new storage, sync surface, or schema change.
 - **Semantic recall with theme bridging.** A semantic-similarity term in the recall ranker, a bge-small "hq" embedding tier with asymmetric query encoding, and theme-enriched embeddings that bridge related insights. Degrades cleanly to keyword search when embeddings aren't available.
 - **No-loss multi-machine sync.** Snapshot-based sync (`memcp_sync`) with a write-lock, tombstones, and union-merge, so one memory store can be driven from several machines without clobbering — plus `memcp_reindex` for cross-machine index rebuilds.
 - **Episodic memory.** `memcp_log_episode` / `memcp_recall_episodes` — record what an approach was and how it turned out, for later replay.
 - **Insight lifecycle.** `memcp_index` (a progressive-disclosure map of all insights), `memcp_get` (fetch by id), `memcp_update` (retag / reclassify in place, preserving edges), `memcp_archive`, and revision tracking.
 - **Telemetry** for tool usage.
 
-That's **33 MCP tools** (up from upstream's 24) across **8 new core subsystems** (`semantic_recall`, `theme_cache`, `snapshot_sync`, `write_lock`, `reindex`, `revision`, `telemetry`, `embedding_text`). Per-feature detail is in [docs/](docs/).
+That's **34 MCP tools** (up from upstream's 24) across **8 new core subsystems** (`semantic_recall`, `theme_cache`, `snapshot_sync`, `write_lock`, `reindex`, `revision`, `telemetry`, `embedding_text`). Per-feature detail is in [docs/](docs/).
 
 ---
 
@@ -73,7 +74,7 @@ MemCP implements the **map-reduce pattern** from the RLM framework (Recursive La
 ```mermaid
 graph TB
     CC[Claude Code] -->|MCP Protocol| S[MemCP Server<br/>FastMCP]
-    S --> M[Memory<br/>33 tools]
+    S --> M[Memory<br/>34 tools]
     S --> G[MAGMA Graph<br/>SQLite]
     S --> SR[Search<br/>5 tiers + semantic recall]
     S --> C[Context Store<br/>Filesystem]
@@ -104,7 +105,7 @@ graph TB
 ## Features
 
 ### Memory & Knowledge Graph
-- **33 MCP tools** — remember, recall, forget, search, grep, index, update, chunk, filter, traverse, reinforce, consolidate, sync, and more
+- **34 MCP tools** — remember, recall, forget, search, grep, topic, index, update, chunk, filter, traverse, reinforce, consolidate, sync, and more
 - **MAGMA 4-graph** — insights connect via semantic, temporal, causal, and entity edges in SQLite
 - **Hebbian co-retrieval strengthening** — edges between frequently co-recalled insights strengthen automatically
 - **Activation-based edge decay** — stale, unused edges fade over time (exponential decay with configurable half-life)
@@ -528,7 +529,7 @@ memcp/
 │   └── uninstall.sh             # Cleanup script
 ├── docs/
 │   ├── ARCHITECTURE.md          # System design + Mermaid diagrams
-│   ├── TOOLS.md                 # All 33 tools reference
+│   ├── TOOLS.md                 # All 34 tools reference
 │   ├── SEARCH.md                # Tiered search system
 │   ├── GRAPH.md                 # MAGMA 4-graph memory
 │   ├── HOOKS.md                 # Auto-save hooks
@@ -630,7 +631,7 @@ pip install memcp[all]                     # Everything
 |----------|-------------|
 | [templates/CLAUDE.md](templates/CLAUDE.md) | Session instructions for Claude Code — deployed to project root by installer |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design with Mermaid diagrams, data flows, directory layout |
-| [docs/TOOLS.md](docs/TOOLS.md) | All 33 tools — signatures, parameters, examples, tips |
+| [docs/TOOLS.md](docs/TOOLS.md) | All 34 tools — signatures, parameters, examples, tips |
 | [docs/SEARCH.md](docs/SEARCH.md) | Tiered search system — how each tier works, installation, degradation |
 | [docs/GRAPH.md](docs/GRAPH.md) | MAGMA 4-graph — edge types, intent detection, entity extraction, traversal |
 | [docs/HOOKS.md](docs/HOOKS.md) | Auto-save hooks — setup, behavior, customization |
@@ -708,7 +709,7 @@ See [SECURITY.md](SECURITY.md) for:
 - **Claude Opus 4.5** — (joint R&D)
 
 **This fork** ([jeffborden/memcp-public](https://github.com/jeffborden/memcp-public)):
-- **Jeff Borden** — fork additions: semantic recall + theme bridging, no-loss multi-machine sync, and the grep / index / lifecycle tools
+- **Jeff Borden** — fork additions: semantic recall + theme bridging, no-loss multi-machine sync, content-versioning (`memcp_topic`), and the grep / index / lifecycle tools
 
 ---
 

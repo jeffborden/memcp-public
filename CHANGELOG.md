@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Features
+
+- Add `memcp_topic` — living-doc content versioning via a `topic:` / `entry:` / `supersedes:` tag convention over append-only saves, read back as "compiled truth on top + chronological timeline below." Every update is a new-id insert (converges cross-machine); no in-place content edits, no new storage, sync surface, or schema change.
+
 ## [0.3.0] - 2026-02-19
 
 ### Documentation
