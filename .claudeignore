@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+*.pyc
+
+# Build/output
+benchmark_output/
+dist/
+build/
+
+# Data files (large, not code)
+*.db
+*.sqlite
+
+# Docker
+docker-compose.yml
+Dockerfile

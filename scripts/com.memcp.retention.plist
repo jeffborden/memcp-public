@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.memcp.retention</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/jborden/projects/memcp/.venv/bin/python</string>
+        <string>/Users/jborden/projects/memcp/scripts/retention_sweep.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/jborden/projects/memcp</string>
+
+    <!-- Mondays at 09:00 local (system timezone). If the Mac is asleep, runs when it next wakes. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- Diagnostic logs for the launch itself; the script's own logging goes to ~/Library/Logs/memcp-retention.log -->
+    <key>StandardOutPath</key>
+    <string>/Users/jborden/Library/Logs/memcp-retention.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/jborden/Library/Logs/memcp-retention.stderr.log</string>
+</dict>
+</plist>
