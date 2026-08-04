@@ -7,12 +7,12 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/jborden/projects/memcp/.venv/bin/python</string>
-        <string>/Users/jborden/projects/memcp/scripts/retention_sweep.py</string>
+        <string>/Users/<you>/projects/memcp/.venv/bin/python</string>
+        <string>/Users/<you>/projects/memcp/scripts/retention_sweep.py</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/jborden/projects/memcp</string>
+    <string>/Users/<you>/projects/memcp</string>
 
     <!-- Mondays at 09:00 local (system timezone). If the Mac is asleep, runs when it next wakes. -->
     <key>StartCalendarInterval</key>
@@ -30,8 +30,8 @@
 
     <!-- Diagnostic logs for the launch itself; the script's own logging goes to ~/Library/Logs/memcp-retention.log -->
     <key>StandardOutPath</key>
-    <string>/Users/jborden/Library/Logs/memcp-retention.stdout.log</string>
+    <string>/Users/<you>/Library/Logs/memcp-retention.stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/jborden/Library/Logs/memcp-retention.stderr.log</string>
+    <string>/Users/<you>/Library/Logs/memcp-retention.stderr.log</string>
 </dict>
 </plist>

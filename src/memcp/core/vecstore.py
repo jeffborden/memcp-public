@@ -12,8 +12,11 @@ All numpy operations are guarded — module degrades gracefully if numpy is abse
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("memcp.vecstore")
 
 NUMPY_AVAILABLE = False
 try:
@@ -124,7 +127,15 @@ class VectorStore:
             return []
         v_norms = np.linalg.norm(self.vectors, axis=1)
         v_norms = np.where(v_norms == 0, 1e-10, v_norms)
-        similarities = (self.vectors @ query.T).flatten() / (v_norms * q_norm)
+        # Accelerate (the macOS BLAS) sets spurious FP status flags on finite
+        # inputs; suppress flag-derived warnings and bound-check the output
+        # instead, so genuinely corrupt vectors still surface.
+        with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+            similarities = (self.vectors @ query.T).flatten() / (v_norms * q_norm)
+        if not np.isfinite(similarities).all():
+            bad = int(np.count_nonzero(~np.isfinite(similarities)))
+            logger.warning("%d non-finite similarity score(s); corrupt stored vectors?", bad)
+            similarities = np.nan_to_num(similarities, nan=0.0, posinf=0.0, neginf=0.0)
         similarities = np.clip(similarities, 0, 1)
         k = min(top_k, len(self.ids))
         top_indices = np.argsort(similarities)[::-1][:k]

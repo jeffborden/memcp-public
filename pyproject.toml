@@ -23,7 +23,7 @@ ner = ["spacy>=3.7"]
 llm = ["httpx>=0.27.0"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.1.0", "pre-commit>=3.0"]
 benchmark = ["pytest-benchmark>=4.0", "tabulate>=0.9"]
-all = ["memcp[search,fuzzy,semantic,vectors,hnsw,async,cache,ner,llm,dev,benchmark]"]
+all = ["claude-memory-mcp[search,fuzzy,semantic,vectors,hnsw,async,cache,ner,llm,dev,benchmark]"]
 
 [project.urls]
 Homepage = "https://github.com/maydali28/memcp"

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+import math
+import warnings
 from pathlib import Path
 
 import pytest
@@ -90,6 +93,30 @@ class TestVectorStore:
         assert store.count() == 1
         store.add("b", [0.0])
         assert store.count() == 2
+
+    def test_corrupt_vectors_sanitized(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        store = VectorStore(tmp_path / "test.npz")
+        store.add("good", [1.0, 0.0, 0.0])
+        store.add("nan", [float("nan"), 0.0, 0.0])
+        store.add("inf", [float("inf"), 0.0, 0.0])
+
+        with caplog.at_level(logging.WARNING, logger="memcp.vecstore"):
+            results = store.search([1.0, 0.0, 0.0], top_k=3)
+
+        assert [item_id for item_id, _ in results] == ["good"]
+        assert all(math.isfinite(score) for _, score in results)
+        assert "non-finite" in caplog.text
+
+    def test_search_emits_no_fp_warnings(self, tmp_path: Path) -> None:
+        store = VectorStore(tmp_path / "test.npz")
+        store.add("a", [1.0, 0.0, 0.0])
+        store.add("b", [0.0, 1.0, 0.0])
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            results = store.search([1.0, 0.0, 0.0], top_k=2)
+        assert results[0][0] == "a"
 
 
 class TestVectorStoreWithoutNumpy:

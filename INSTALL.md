@@ -19,7 +19,7 @@ install from this repo as below.
 # 1. Clone and pin to the release tag
 git clone <this-repo-url> ~/projects/memcp
 cd ~/projects/memcp
-git checkout v0.4.0   # pin to the newest release tag
+git checkout v0.4.1   # pin to the newest release tag
 
 # 2. Dedicated venv + editable install WITH the semantic/search extras
 python3 -m venv ~/venvs/memcp

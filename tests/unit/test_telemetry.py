@@ -172,8 +172,8 @@ def test_default_dir_explicit_override(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_default_dir_tracks_local_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MEMCP_TELEMETRY_DIR", raising=False)
-    monkeypatch.setenv("MEMCP_DATA_DIR", "/Users/jborden/.memcp-local")
-    assert telemetry.default_telemetry_dir() == Path("/Users/jborden/.memcp-local/telemetry")
+    monkeypatch.setenv("MEMCP_DATA_DIR", "/Users/someone/.memcp-local")
+    assert telemetry.default_telemetry_dir() == Path("/Users/someone/.memcp-local/telemetry")
 
 
 def test_default_dir_drive_guard_via_symlink(

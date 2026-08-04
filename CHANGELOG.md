@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-08-04
+
+Patch release: folds in two fixes that landed on `main` from another machine
+in parallel with 0.4.0 and were missing from it.
+
+### Fixed
+
+- **vecstore: spurious Accelerate FP flags suppressed, non-finite scores
+  sanitized** — on Apple Accelerate BLAS, similarity search could emit
+  floating-point warnings and propagate `nan`/`inf` scores into ranking.
+- **packaging: the `[all]` extra self-references the real distribution name**
+  (`claude-memory-mcp`), so `pip install "claude-memory-mcp[all]"` no longer
+  resolves a foreign `memcp` package from PyPI.
+
 ## [0.4.0] - 2026-08-04
 
 Export-hardening release: the fixes an adopting teammate would otherwise hit

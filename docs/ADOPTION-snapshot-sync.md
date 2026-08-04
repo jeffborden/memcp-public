@@ -43,7 +43,7 @@ Merged to `main`: `dc147af` (sync) on top of `e4f28b7` (write-lock + DELETE).
 1. `cd ~/projects/memcp && git pull origin main`
 2. Edit that machine's `~/.claude.json`, memcp server `env`:
    ```json
-   "MEMCP_DATA_DIR": "/Users/jborden/.memcp-local",
+   "MEMCP_DATA_DIR": "/Users/<you>/.memcp-local",
    "MEMCP_SNAPSHOT_DIR": "/Users/<you>/Library/CloudStorage/GoogleDrive-<you>@example.com/My Drive/memcp/sync"
    ```
 3. Restart Claude Code. On first start MemCP pulls the snapshot from Drive and
